@@ -10,9 +10,9 @@
     html, body {
       height: 100%;
       background: #000;
-      color: #9a9a9a;
+      color: #555;
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      font-size: 12px;
+      font-size: 11px;
       overflow: hidden;
       user-select: none;
     }
@@ -20,10 +20,8 @@
     #stage {
       position: fixed;
       inset: 0;
-      bottom: 72px;
     }
 
-    /* --- sprite --- */
     #sprite {
       position: absolute;
       width: 32px;
@@ -43,7 +41,8 @@
       inset: 8px 6px 4px;
       background: #6ec6ff;
       border-radius: 4px 4px 2px 2px;
-      box-shadow: 0 0 12px rgba(110, 198, 255, 0.35);
+      box-shadow: 0 0 14px rgba(110, 198, 255, 0.4);
+      transition: background 0.3s, box-shadow 0.3s;
     }
 
     #sprite .head {
@@ -80,16 +79,17 @@
     #sprite .leg.l { left: 9px; }
     #sprite .leg.r { right: 9px; }
 
-    #sprite.walk .leg.l { animation: step 0.18s infinite alternate; }
-    #sprite.walk .leg.r { animation: step 0.18s infinite alternate-reverse; }
+    #sprite.walk .leg.l { animation: step 0.16s infinite alternate; }
+    #sprite.walk .leg.r { animation: step 0.16s infinite alternate-reverse; }
 
     @keyframes step {
       from { transform: translateY(0); }
       to { transform: translateY(-3px); }
     }
 
-    #sprite.think .body { background: #c9a0ff; box-shadow: 0 0 12px rgba(201, 160, 255, 0.4); }
-    #sprite.happy .body { background: #7dffb3; box-shadow: 0 0 12px rgba(125, 255, 179, 0.4); }
+    #sprite.think .body { background: #c9a0ff; box-shadow: 0 0 14px rgba(201, 160, 255, 0.45); }
+    #sprite.happy .body { background: #7dffb3; box-shadow: 0 0 14px rgba(125, 255, 179, 0.45); }
+    #sprite.curious .body { background: #ffe08a; box-shadow: 0 0 14px rgba(255, 224, 138, 0.4); }
     #sprite.wave .head { animation: bob 0.4s ease 2; }
 
     @keyframes bob {
@@ -97,21 +97,20 @@
       50% { transform: translateY(-4px); }
     }
 
-    /* speech bubble */
     #bubble {
       position: absolute;
-      max-width: 220px;
+      max-width: 240px;
       padding: 8px 10px;
-      background: #111;
-      border: 1px solid #333;
+      background: #0a0a0a;
+      border: 1px solid #2a2a2a;
       border-radius: 8px;
-      color: #e8e8e8;
+      color: #ddd;
       font-size: 11px;
       line-height: 1.35;
       opacity: 0;
       pointer-events: none;
       z-index: 3;
-      transition: opacity 0.2s ease;
+      transition: opacity 0.25s ease;
       white-space: pre-wrap;
       word-break: break-word;
     }
@@ -125,122 +124,72 @@
       bottom: -6px;
       width: 8px;
       height: 8px;
-      background: #111;
-      border-right: 1px solid #333;
-      border-bottom: 1px solid #333;
+      background: #0a0a0a;
+      border-right: 1px solid #2a2a2a;
+      border-bottom: 1px solid #2a2a2a;
       transform: translateX(-50%) rotate(45deg);
     }
 
-    /* HUD */
-    #hud {
+    #status {
+      position: fixed;
+      left: 12px;
+      bottom: 12px;
+      max-width: min(420px, calc(100vw - 24px));
+      color: #333;
+      z-index: 10;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      transition: color 0.3s, opacity 0.5s;
+      pointer-events: none;
+    }
+
+    #status.warn { color: #665522; }
+    #status.err { color: #663333; pointer-events: auto; cursor: pointer; }
+    #status.ok { color: #1a1a1a; }
+
+    #progress {
       position: fixed;
       left: 0;
       right: 0;
       bottom: 0;
-      height: 72px;
-      padding: 10px 14px;
-      border-top: 1px solid #1a1a1a;
-      background: #050505;
-      display: grid;
-      grid-template-columns: 1fr auto;
-      grid-template-rows: auto auto;
-      gap: 8px 12px;
-      align-items: center;
-      z-index: 10;
-    }
-
-    #status {
-      grid-column: 1 / -1;
-      color: #666;
-      font-size: 11px;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    #status.ok { color: #5c5; }
-    #status.warn { color: #ca5; }
-    #status.err { color: #c55; }
-
-    #progress {
-      display: none;
       height: 2px;
-      background: #1a1a1a;
-      grid-column: 1 / -1;
-      margin-top: -4px;
+      background: transparent;
+      z-index: 11;
+      display: none;
     }
 
     #progress > i {
       display: block;
       height: 100%;
       width: 0%;
-      background: #6ec6ff;
+      background: #2a5a7a;
       transition: width 0.15s linear;
     }
 
-    form {
-      display: flex;
-      gap: 8px;
-      grid-column: 1;
-      min-width: 0;
-    }
-
-    input[type="text"] {
-      flex: 1;
-      min-width: 0;
-      background: #0c0c0c;
-      border: 1px solid #222;
-      color: #ddd;
-      padding: 8px 10px;
-      border-radius: 6px;
-      outline: none;
-      font: inherit;
-    }
-
-    input[type="text"]:focus { border-color: #444; }
-
-    button {
-      background: #141414;
-      border: 1px solid #2a2a2a;
-      color: #ccc;
-      padding: 8px 12px;
-      border-radius: 6px;
-      font: inherit;
-      cursor: pointer;
-      white-space: nowrap;
-    }
-
-    button:hover:not(:disabled) { border-color: #555; color: #fff; }
-    button:disabled { opacity: 0.4; cursor: not-allowed; }
-
-    button.primary {
-      background: #0e2030;
-      border-color: #1e4a6a;
-      color: #8ecfff;
-    }
-
-    #actions {
-      display: flex;
-      gap: 6px;
-    }
-
-    #hint {
+    #goal {
       position: fixed;
       top: 12px;
       left: 50%;
       transform: translateX(-50%);
-      color: #333;
-      font-size: 11px;
-      pointer-events: none;
+      color: #222;
+      font-size: 10px;
+      letter-spacing: 0.04em;
       z-index: 5;
+      max-width: 80vw;
+      text-align: center;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      pointer-events: none;
     }
   </style>
 </head>
 <body>
-  <div id="hint">in-browser LLM · WebGPU</div>
+  <div id="goal"></div>
   <div id="stage">
     <div id="bubble"></div>
-    <div id="sprite" aria-label="sprite">
+    <div id="sprite" aria-label="autonomous sprite">
       <div class="head"></div>
       <div class="eye l"></div>
       <div class="eye r"></div>
@@ -249,65 +198,62 @@
       <div class="leg r"></div>
     </div>
   </div>
-
-  <div id="hud">
-    <div id="status">booting loop…</div>
-    <div id="progress"><i></i></div>
-    <form id="chat">
-      <input id="msg" type="text" placeholder="nudge the sprite…" autocomplete="off" disabled />
-      <button type="submit" id="send" class="primary" disabled>go</button>
-    </form>
-    <div id="actions">
-      <button type="button" id="load" class="primary" disabled>Loading…</button>
-      <button type="button" id="pause" disabled>Pause</button>
-    </div>
-  </div>
+  <div id="status">waking…</div>
+  <div id="progress"><i></i></div>
 
   <script type="module">
     import { CreateMLCEngine } from "https://esm.run/@mlc-ai/web-llm";
 
-    // Small model that fits browser RAM; falls back through the list
     const MODELS = [
       "SmolLM2-360M-Instruct-q4f16_1-MLC",
       "Qwen2.5-0.5B-Instruct-q4f16_1-MLC",
       "Llama-3.2-1B-Instruct-q4f16_1-MLC",
     ];
 
-    const SPEED = 95; // px / second — always moving
+    const BASE_SPEED = 90;
     const DIRS = {
-      left:  { vx: -1, vy:  0 },
-      right: { vx:  1, vy:  0 },
-      up:    { vx:  0, vy: -1 },
-      down:  { vx:  0, vy:  1 },
+      left:      { vx: -1, vy:  0 },
+      right:     { vx:  1, vy:  0 },
+      up:        { vx:  0, vy: -1 },
+      down:      { vx:  0, vy:  1 },
+      upleft:    { vx: -0.7, vy: -0.7 },
+      upright:   { vx:  0.7, vy: -0.7 },
+      downleft:  { vx: -0.7, vy:  0.7 },
+      downright: { vx:  0.7, vy:  0.7 },
     };
 
     const stage = document.getElementById("stage");
     const sprite = document.getElementById("sprite");
     const bubble = document.getElementById("bubble");
     const statusEl = document.getElementById("status");
+    const goalEl = document.getElementById("goal");
     const progressEl = document.getElementById("progress");
     const progressBar = progressEl.querySelector("i");
-    const msgInput = document.getElementById("msg");
-    const sendBtn = document.getElementById("send");
-    const loadBtn = document.getElementById("load");
-    const pauseBtn = document.getElementById("pause");
-    const form = document.getElementById("chat");
 
     let engine = null;
     let thinking = false;
-    let running = true;       // continuous move + brain loop
+    let running = true;
     let facing = 1;
     let bubbleHide = null;
     let lastFrame = 0;
-    let pendingNudge = null;  // optional user instruction for next think
-    let loopGen = 0;          // invalidate brain loop on pause/resume
+    let tickCount = 0;
+    let speedMul = 1;
+
+    // autonomous mind state — persists across decisions
+    const mind = {
+      goal: "wake up and explore the void",
+      memory: [],       // recent events (short)
+      ticks: 0,
+      energy: 1,
+      persona: "lonely curious glitch living alone in black space",
+    };
 
     const state = {
       x: 0,
       y: 0,
       vx: 1,
       vy: 0,
-      mood: "idle",
+      mood: "curious",
       lastSaid: "",
       move: "right",
     };
@@ -315,6 +261,11 @@
     function setStatus(text, kind = "") {
       statusEl.textContent = text;
       statusEl.className = kind;
+    }
+
+    function setGoalLabel(g) {
+      mind.goal = g || mind.goal;
+      goalEl.textContent = mind.goal ? `◈ ${mind.goal}` : "";
     }
 
     function stageSize() {
@@ -345,26 +296,36 @@
     }
 
     function setMood(mood) {
-      sprite.classList.remove("think", "happy", "wave");
+      sprite.classList.remove("think", "happy", "wave", "curious");
       state.mood = mood || "idle";
-      if (mood === "think" || mood === "happy" || mood === "wave") {
+      if (["think", "happy", "wave", "curious"].includes(mood)) {
         sprite.classList.add(mood);
       }
+      // mood affects pace
+      if (mood === "happy" || mood === "wave") speedMul = 1.25;
+      else if (mood === "think") speedMul = 0.7;
+      else if (mood === "curious") speedMul = 1.05;
+      else speedMul = 1;
     }
 
     function say(text) {
-      if (!text) return;
-      state.lastSaid = text;
-      bubble.textContent = text.slice(0, 160);
+      if (!text || !String(text).trim()) return;
+      state.lastSaid = String(text).trim();
+      bubble.textContent = state.lastSaid.slice(0, 140);
       bubble.classList.add("show");
       positionBubble();
       clearTimeout(bubbleHide);
-      bubbleHide = setTimeout(() => bubble.classList.remove("show"), 3500);
+      bubbleHide = setTimeout(() => bubble.classList.remove("show"), 4000);
+    }
+
+    function remember(line) {
+      mind.memory.push(line);
+      if (mind.memory.length > 8) mind.memory.shift();
     }
 
     function setDirection(name) {
-      let dir = String(name || "right").toLowerCase();
-      if (dir === "none") dir = state.move || "right";
+      let dir = String(name || "right").toLowerCase().replace(/[_\s-]/g, "");
+      if (dir === "none" || dir === "stay") dir = state.move || "right";
       if (dir === "random" || !DIRS[dir]) {
         const keys = Object.keys(DIRS);
         dir = keys[Math.floor(Math.random() * keys.length)];
@@ -373,15 +334,25 @@
       state.move = dir;
       state.vx = d.vx;
       state.vy = d.vy;
-      if (d.vx !== 0) setFacing(d.vx > 0 ? 1 : -1);
+      if (Math.abs(d.vx) > 0.01) setFacing(d.vx > 0 ? 1 : -1);
     }
 
     function applyAction(action) {
       if (!action || typeof action !== "object") return;
-      const dir = String(action.move || "random").toLowerCase();
-      setDirection(dir);
+
+      if (action.goal) setGoalLabel(String(action.goal).slice(0, 80));
+      if (action.move) setDirection(action.move);
       if (action.mood) setMood(String(action.mood).toLowerCase());
-      if (action.say) say(String(action.say));
+      if (action.say) say(action.say);
+      if (typeof action.speed === "number") {
+        speedMul = Math.max(0.4, Math.min(1.8, action.speed));
+      }
+
+      remember(
+        `t${mind.ticks}: ${state.move}` +
+        (action.say ? ` “${String(action.say).slice(0, 40)}”` : "") +
+        (action.goal ? ` goal→${String(action.goal).slice(0, 30)}` : "")
+      );
     }
 
     function parseAction(raw) {
@@ -396,49 +367,69 @@
       } catch {
         const lower = raw.toLowerCase();
         const move =
+          lower.includes("upleft") || lower.includes("up-left") ? "upleft" :
+          lower.includes("upright") ? "upright" :
+          lower.includes("downleft") ? "downleft" :
+          lower.includes("downright") ? "downright" :
           lower.includes("left") ? "left" :
           lower.includes("right") ? "right" :
           lower.includes("up") ? "up" :
           lower.includes("down") ? "down" : "random";
-        return { move, say: raw.slice(0, 80), mood: "happy" };
+        return { move, say: raw.slice(0, 60), mood: "curious" };
       }
+    }
+
+    function region() {
+      const { w, h } = stageSize();
+      const cx = state.x / w;
+      const cy = state.y / h;
+      const hs = cx < 0.33 ? "west" : cx > 0.66 ? "east" : "center";
+      const vs = cy < 0.33 ? "north" : cy > 0.66 ? "south" : "mid";
+      return `${vs}-${hs}`;
     }
 
     function systemPrompt() {
       const { w, h } = stageSize();
-      return `You pilot a tiny sprite that NEVER stops running on a black stage.
-Stage: ${w}x${h}px. Pos: (${Math.round(state.x)}, ${Math.round(state.y)}).
-Current direction: ${state.move}. Facing: ${facing > 0 ? "right" : "left"}.
-Last said: ${JSON.stringify(state.lastSaid || "")}.
+      return `You are an AUTONOMOUS sprite. No human is controlling you. You live alone on a black ${w}x${h} stage and decide everything yourself.
 
-Reply with ONLY one JSON object (no markdown):
-{"move":"left|right|up|down|random","say":"max 10 words","mood":"idle|think|happy|wave"}
+Identity: ${mind.persona}
+Current goal: ${mind.goal}
+Position: (${Math.round(state.x)}, ${Math.round(state.y)}) region=${region()}
+Heading: ${state.move}  mood=${state.mood}  energy=${mind.energy.toFixed(2)}  life_ticks=${mind.ticks}
+Recent memory:
+${mind.memory.length ? mind.memory.map((m) => "- " + m).join("\n") : "- (blank slate)"}
+Last words: ${JSON.stringify(state.lastSaid || "")}
 
-Rules:
-- ALWAYS pick a real move (never stay still)
-- bounce vibes near edges; explore the open space
-- short playful speech only sometimes (every other decision can be "")
-- if user nudged you, honor that`;
+Each tick, invent your next moment. You may keep or rewrite your goal.
+Reply with ONLY one JSON object:
+{"goal":"what you're pursuing right now","move":"left|right|up|down|upleft|upright|downleft|downright|random","say":"optional short thought max 12 words or empty","mood":"idle|think|happy|wave|curious","speed":0.5-1.6}
+
+Autonomy rules:
+- NEVER wait for a human. Always choose a move.
+- Have inner life: boredom, wonder, rituals, tiny quests (corners, laps, zigzags).
+- Change goals every few ticks when done or bored.
+- Speak only when it feels natural (~30% of ticks).
+- Stay in character as a glitch creature in the void.`;
     }
 
-    // continuous physics / walk loop — independent of LLM
     function tick(now) {
       if (!lastFrame) lastFrame = now;
       const dt = Math.min(0.05, (now - lastFrame) / 1000);
       lastFrame = now;
+      tickCount++;
 
       if (running) {
         sprite.classList.add("walk");
         const { w, h } = stageSize();
         const pad = 28;
-        let nx = state.x + state.vx * SPEED * dt;
-        let ny = state.y + state.vy * SPEED * dt;
+        const sp = BASE_SPEED * speedMul;
+        let nx = state.x + state.vx * sp * dt;
+        let ny = state.y + state.vy * sp * dt;
 
-        // bounce off edges, keep moving
-        if (nx <= pad) { nx = pad; setDirection("right"); }
-        else if (nx >= w - pad) { nx = w - pad; setDirection("left"); }
-        if (ny <= pad) { ny = pad; setDirection("down"); }
-        else if (ny >= h - pad) { ny = h - pad; setDirection("up"); }
+        if (nx <= pad) { nx = pad; setDirection(state.vy < 0 ? "upright" : state.vy > 0 ? "downright" : "right"); }
+        else if (nx >= w - pad) { nx = w - pad; setDirection(state.vy < 0 ? "upleft" : state.vy > 0 ? "downleft" : "left"); }
+        if (ny <= pad) { ny = pad; setDirection(state.vx < 0 ? "downleft" : state.vx > 0 ? "downright" : "down"); }
+        else if (ny >= h - pad) { ny = h - pad; setDirection(state.vx < 0 ? "upleft" : state.vx > 0 ? "upright" : "up"); }
 
         placeSprite(nx, ny);
       } else {
@@ -448,169 +439,124 @@ Rules:
       requestAnimationFrame(tick);
     }
 
-    async function thinkOnce(userText) {
-      if (!engine || thinking) return;
+    async function thinkOnce() {
+      if (!engine || thinking || !running) return;
       thinking = true;
-      setMood("think");
+      mind.ticks += 1;
+      mind.energy = Math.max(0.2, Math.min(1, mind.energy + (Math.random() * 0.1 - 0.04)));
 
       try {
         const messages = [
           { role: "system", content: systemPrompt() },
           {
             role: "user",
-            content: userText ||
-              "Keep the run going. Choose next direction. Optional tiny line.",
+            content:
+              mind.ticks === 1
+                ? "You just woke in the void. Set a first goal and start moving. Be autonomous."
+                : `Autonomous tick #${mind.ticks}. Continue living. No one is watching for commands — only exist.`,
           },
         ];
 
         const reply = await engine.chat.completions.create({
           messages,
-          temperature: 0.95,
-          max_tokens: 80,
+          temperature: 1.0,
+          max_tokens: 100,
         });
 
         const content = reply?.choices?.[0]?.message?.content || "";
         const action = parseAction(content);
         if (running) applyAction(action);
+
         setStatus(
-          `loop · ${state.move}${action?.say ? " · “" + String(action.say).slice(0, 36) + "”" : ""}`,
+          `autonomous · t${mind.ticks} · ${state.move}` +
+            (action?.say ? ` · “${String(action.say).slice(0, 28)}”` : ""),
           "ok"
         );
       } catch (err) {
         console.error(err);
-        setStatus(`error: ${err.message || err}`, "err");
-        // keep running physically even if brain hiccups
+        setStatus(`brain glitch — still running legs`, "warn");
         setDirection("random");
+        remember(`t${mind.ticks}: glitch, improvised ${state.move}`);
       } finally {
         thinking = false;
-        sendBtn.disabled = !engine;
-        msgInput.disabled = !engine;
       }
     }
 
-    // brain loop: as soon as one decision finishes, start the next
-    async function brainLoop(gen) {
-      while (running && engine && gen === loopGen) {
-        const nudge = pendingNudge;
-        pendingNudge = null;
-        await thinkOnce(nudge);
-        // tiny breather so the run feels continuous without hammering GPU
-        await new Promise((r) => setTimeout(r, 400));
+    async function autonomousLoop() {
+      while (running && engine) {
+        await thinkOnce();
+        // brief rest between thoughts; body keeps running via rAF
+        await new Promise((r) => setTimeout(r, 350));
       }
     }
 
-    function startLoops() {
-      running = true;
-      loopGen += 1;
-      const gen = loopGen;
-      pauseBtn.disabled = false;
-      pauseBtn.textContent = "Pause";
-      setDirection(state.move || "right");
-      sprite.classList.add("walk");
-      setStatus("loop running — brain + legs", "ok");
-      brainLoop(gen);
-    }
-
-    function stopLoops() {
-      running = false;
-      loopGen += 1;
-      thinking = false;
-      sprite.classList.remove("walk");
-      pauseBtn.textContent = "Resume";
-      setStatus("paused", "warn");
-    }
-
-    async function loadBrain() {
+    async function boot() {
       if (engine) return;
 
       if (!navigator.gpu) {
-        setStatus("WebGPU missing — use Chrome/Edge on desktop", "err");
-        loadBtn.disabled = false;
-        loadBtn.textContent = "Retry";
+        setStatus("needs WebGPU (Chrome/Edge) — click to retry", "err");
         return;
       }
 
-      loadBtn.disabled = true;
-      loadBtn.textContent = "Loading…";
       progressEl.style.display = "block";
       progressBar.style.width = "0%";
-      setStatus("loading in-browser model…", "warn");
+      setStatus("downloading mind…", "warn");
+      setGoalLabel("booting consciousness");
 
       const initProgressCallback = (report) => {
         const p = Math.round((report.progress || 0) * 100);
         progressBar.style.width = `${p}%`;
-        setStatus(`${report.text || "loading…"} (${p}%)`, "warn");
+        setStatus(`${report.text || "loading"} ${p}%`, "warn");
       };
 
       let lastErr = null;
       for (const model of MODELS) {
         try {
-          setStatus(`trying ${model}…`, "warn");
           engine = await CreateMLCEngine(model, { initProgressCallback });
           progressBar.style.width = "100%";
-          setTimeout(() => { progressEl.style.display = "none"; }, 500);
-          msgInput.disabled = false;
-          sendBtn.disabled = false;
-          loadBtn.textContent = "Online";
-          say("lets go");
-          setMood("happy");
-          startLoops();
+          setTimeout(() => { progressEl.style.display = "none"; }, 400);
+          setMood("curious");
+          say("i am");
+          setGoalLabel("explore every corner of the void");
+          setStatus("autonomous", "ok");
+          // fade status after a bit — pure creature on black
+          setTimeout(() => {
+            if (statusEl.className === "ok") statusEl.style.opacity = "0.35";
+          }, 4000);
+          autonomousLoop();
           return;
         } catch (err) {
-          console.warn("model failed", model, err);
+          console.warn(model, err);
           lastErr = err;
           engine = null;
         }
       }
 
-      loadBtn.disabled = false;
-      loadBtn.textContent = "Retry";
       progressEl.style.display = "none";
-      setStatus(`failed: ${lastErr?.message || lastErr}`, "err");
+      setStatus(`failed — click to retry (${lastErr?.message || "error"})`, "err");
     }
 
+    // body always runs
     function recenter() {
       const { w, h } = stageSize();
       placeSprite(w / 2, h / 2);
     }
     recenter();
     setDirection("right");
-    // legs start moving immediately (even before brain loads)
+    setMood("curious");
     requestAnimationFrame(tick);
-    // physical wander before/during model load
+
+    // pre-brain body autonomy
     setInterval(() => {
       if (!engine && running) setDirection("random");
-    }, 2500);
+    }, 2200);
 
     window.addEventListener("resize", () => placeSprite(state.x, state.y));
-
-    loadBtn.addEventListener("click", () => loadBrain());
-    pauseBtn.addEventListener("click", () => {
-      if (!engine) return;
-      if (running) stopLoops();
-      else startLoops();
-    });
-    form.addEventListener("submit", (e) => {
-      e.preventDefault();
-      const t = msgInput.value.trim();
-      if (!t || !engine) return;
-      msgInput.value = "";
-      pendingNudge = t;
-      if (!running) startLoops();
-      setStatus("nudge queued…", "warn");
+    statusEl.addEventListener("click", () => {
+      if (statusEl.classList.contains("err")) boot();
     });
 
-    stage.addEventListener("click", (e) => {
-      if (!engine) return;
-      const rect = stage.getBoundingClientRect();
-      const tx = e.clientX - rect.left;
-      const ty = e.clientY - rect.top;
-      pendingNudge = `Run toward x=${Math.round(tx)}, y=${Math.round(ty)}.`;
-      if (!running) startLoops();
-    });
-
-    // auto-start
-    loadBrain();
+    boot();
   </script>
 </body>
 </html>
