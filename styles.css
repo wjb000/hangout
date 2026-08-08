@@ -4,9 +4,9 @@
 
 html, body {
   height: 100%;
-  background: #020308;
+  background: #0c0a08;
   overflow: hidden;
-  color: #9ab;
+  color: #c4a882;
   font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   user-select: none;
   -webkit-tap-highlight-color: transparent;
@@ -82,20 +82,20 @@ html, body {
   pointer-events: auto;
   align-self: flex-start;
   padding: 8px 14px;
-  background: rgba(8, 12, 22, 0.78);
-  border: 1px solid rgba(100, 140, 200, 0.22);
+  background: rgba(24, 16, 12, 0.82);
+  border: 1px solid rgba(200, 150, 90, 0.28);
   border-radius: 14px;
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
   backdrop-filter: blur(12px);
 }
 #brand .logo {
-  color: #9fdfb0;
+  color: #e8c48a;
   font-weight: 700;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.08em;
   font-size: 13px;
 }
 #day-label {
-  color: #8ab4ff;
+  color: #c49860;
   font-weight: 600;
   text-transform: uppercase;
   font-size: 10px;
@@ -154,8 +154,8 @@ html, body {
   max-width: 200px;
   padding: 10px 12px;
   border-radius: 12px;
-  background: rgba(8, 12, 20, 0.78);
-  border: 1px solid rgba(100, 130, 180, 0.2);
+  background: rgba(22, 14, 10, 0.82);
+  border: 1px solid rgba(160, 110, 60, 0.25);
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
   backdrop-filter: blur(10px);
 }
@@ -226,6 +226,20 @@ html, body {
   align-items: stretch;
   gap: 0;
   pointer-events: none;
+  opacity: 0.55;
+  transition: opacity 0.2s;
+}
+#side-panels:hover { opacity: 0.95; }
+#side-panels.compact #vision {
+  width: 120px;
+  height: 75px;
+}
+#side-panels.compact #vision-meta,
+#side-panels.compact #minimap {
+  width: 120px;
+}
+#side-panels.compact #minimap {
+  height: 75px;
 }
 
 #objective-row {

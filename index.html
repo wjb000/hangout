@@ -3,18 +3,18 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
-  <title>Hangout</title>
+  <title>Hangout · Little Land</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <div id="hud-top">
     <div id="brand">
-      <span class="logo">Hangout</span>
+      <span class="logo">Little Land</span>
       <span id="day-label">dusk</span>
       <span id="brain-mode" title="cycle brain">hybrid</span>
     </div>
     <div id="topic-bar" class="hidden">
-      <span class="topic-tag">talking</span>
+      <span class="topic-tag">chatting</span>
       <span id="topic-text">—</span>
     </div>
     <div id="agent-cards">
@@ -43,33 +43,38 @@
         <div class="goal" id="nox-goal">…</div>
       </div>
     </div>
-    <div id="status">booting…</div>
+    <div id="status">waking the land…</div>
     <div id="rel-bar"></div>
   </div>
 
   <div id="onboard" class="hidden">
     <div class="onboard-card">
-      <h2>Hangout</h2>
-      <p class="onboard-lead">Bit and Nox live here. They roam, rest, work, and talk in threads — not a game, a place.</p>
+      <h2>Little Land</h2>
+      <p class="onboard-lead">
+        A cozy overview of a virtual tavern-land. Tiny dwellers live their day —
+        you watch from above, like Tavern Master.
+      </p>
       <ul class="onboard-list">
-        <li>Multi-turn conversations on shared topics</li>
-        <li>Energy &amp; social needs drive behavior</li>
-        <li>Day cycles through the rooms</li>
+        <li><b>Hall · Kitchen · Hearth · Garden</b></li>
+        <li>Bit &amp; Nox roam, rest, work, and chat</li>
+        <li>Optional: call them, plant a beacon, wander as You</li>
       </ul>
-      <p class="onboard-keys"><kbd>Q</kbd> call · <kbd>E</kbd> beacon · <kbd>C</kbd> cam · click them or props</p>
-      <button type="button">Enter</button>
+      <p class="onboard-keys"><kbd>C</kbd> overview / follow · <kbd>Q</kbd> call · <kbd>D</kbd> debug</p>
+      <button type="button">Look upon the land</button>
     </div>
   </div>
 
   <div id="phase-banner" class="hidden">
-    <div class="pb-title">HANGOUT</div>
-    <div class="pb-sub">they're awake</div>
+    <div class="pb-title">LITTLE LAND</div>
+    <div class="pb-sub">they live here</div>
   </div>
 
-  <canvas id="world" aria-label="hangout world"></canvas>
-  <div id="side-panels">
-    <canvas id="vision" width="256" height="160" aria-label="agent eye"></canvas>
-    <div id="vision-meta">◈ eye</div>
+  <canvas id="world" aria-label="little land overview"></canvas>
+
+  <!-- eye feed is optional / secondary for overview mode -->
+  <div id="side-panels" class="compact">
+    <canvas id="vision" width="256" height="160" aria-label="peek"></canvas>
+    <div id="vision-meta">peek</div>
     <canvas id="minimap" width="176" height="110" aria-label="map"></canvas>
   </div>
 
@@ -84,12 +89,12 @@
   <div id="mobile-bar">
     <button type="button" id="m-call">Call</button>
     <button type="button" id="m-beacon">Beacon</button>
-    <button type="button" id="m-cam">Cam</button>
+    <button type="button" id="m-cam">View</button>
     <button type="button" id="m-brain">Brain</button>
   </div>
 
   <div id="progress"><i></i></div>
-  <div id="hint">living sim · no scores · <kbd>Q</kbd> <kbd>E</kbd> <kbd>C</kbd> <kbd>B</kbd> <kbd>D</kbd></div>
+  <div id="hint">overview of their world · <kbd>C</kbd> follow · sit back and watch</div>
 
   <script type="module" src="main.js"></script>
 </body>

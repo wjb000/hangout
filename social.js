@@ -8,18 +8,18 @@
 import { dist, roomAt, nearestProp, hasLOS } from "./world.js";
 
 export const TOPICS = [
-  "the void",
-  "coffee",
-  "memory",
-  "silence",
-  "stars outside the walls",
-  "whether Node is lonely",
-  "old code that still runs",
-  "what 'home' means for glitches",
+  "the hearth fire",
+  "tonight's stew",
+  "old songs",
+  "the garden oak",
+  "whether the innkeep sleeps",
+  "rain on the roof",
+  "what 'home' means",
   "Bit's optimism",
   "Nox's walls",
-  "the human watching",
-  "rain that never comes",
+  "the guest watching us",
+  "fresh bread",
+  "quiet mornings",
 ];
 
 const BIT_VOICE = {

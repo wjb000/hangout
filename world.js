@@ -1,6 +1,6 @@
 /**
- * Hangout world: rooms, walls, props, pickups, collision, LOS.
- * Coordinates are in world pixels; canvas maps world → screen.
+ * Hangout land — overview diorama (Tavern Master vibes).
+ * Cartesian logic; rendered as a cozy top-down little world.
  */
 
 export const PAD = 24;
@@ -9,60 +9,63 @@ export const PAD = 24;
 export const WORLD_W = 960;
 export const WORLD_H = 600;
 
+/** Tiny dweller draw scale (overview / dollhouse) */
+export const CHAR_SCALE = 0.52;
+
 export function createWorld() {
+  // Tavern-land rooms (same layout / door gaps for pathfinding)
   const rooms = [
-    { id: "lobby", name: "Lobby", x: 40, y: 40, w: 400, h: 280, light: 0.42, color: "#0c1420", accent: "#3d7aad", visionColor: "#1a3048" },
-    { id: "lab", name: "Lab", x: 480, y: 40, w: 440, h: 280, light: 0.5, color: "#120c1c", accent: "#8b5cf6", visionColor: "#281840" },
-    { id: "den", name: "Den", x: 40, y: 360, w: 540, h: 200, light: 0.38, color: "#16100c", accent: "#c4783a", visionColor: "#302010" },
-    { id: "yard", name: "Yard", x: 620, y: 360, w: 300, h: 200, light: 0.48, color: "#0a1610", accent: "#34a86a", visionColor: "#143020" },
+    { id: "lobby", name: "Hall", x: 40, y: 40, w: 400, h: 280, light: 0.55, color: "#2a1c14", accent: "#e8a54b", floor: "wood", visionColor: "#3d2a1c" },
+    { id: "lab", name: "Kitchen", x: 480, y: 40, w: 440, h: 280, light: 0.5, color: "#241a16", accent: "#c47850", floor: "tile", visionColor: "#382820" },
+    { id: "den", name: "Hearth", x: 40, y: 360, w: 540, h: 200, light: 0.62, color: "#1e1410", accent: "#ff8a40", floor: "rug", visionColor: "#301c14" },
+    { id: "yard", name: "Garden", x: 620, y: 360, w: 300, h: 200, light: 0.58, color: "#142018", accent: "#6bcf7a", floor: "grass", visionColor: "#1c3020" },
   ];
 
-  // solid walls (axis-aligned)
   const walls = [
-    // outer shell
     { x: 0, y: 0, w: WORLD_W, h: 16 },
     { x: 0, y: WORLD_H - 16, w: WORLD_W, h: 16 },
     { x: 0, y: 0, w: 16, h: WORLD_H },
     { x: WORLD_W - 16, y: 0, w: 16, h: WORLD_H },
-    // room dividers with door gaps
-    { x: 440, y: 40, w: 16, h: 100 }, // lobby|lab top
-    { x: 440, y: 220, w: 16, h: 100 }, // lobby|lab bottom (door 140-220)
-    { x: 40, y: 320, w: 200, h: 16 }, // lobby|den left
-    { x: 320, y: 320, w: 260, h: 16 }, // lobby|den right (door 240-320)
-    { x: 580, y: 320, w: 16, h: 40 }, // den|yard top
-    { x: 580, y: 440, w: 16, h: 120 }, // den|yard bottom (door 360-440)
-    { x: 620, y: 320, w: 120, h: 16 }, // lab|yard left
-    { x: 800, y: 320, w: 120, h: 16 }, // lab|yard right (door 740-800)
+    { x: 440, y: 40, w: 16, h: 100 },
+    { x: 440, y: 220, w: 16, h: 100 },
+    { x: 40, y: 320, w: 200, h: 16 },
+    { x: 320, y: 320, w: 260, h: 16 },
+    { x: 580, y: 320, w: 16, h: 40 },
+    { x: 580, y: 440, w: 16, h: 120 },
+    { x: 620, y: 320, w: 120, h: 16 },
+    { x: 800, y: 320, w: 120, h: 16 },
   ];
 
+  // Cozy furniture (ids kept for social planner: coffee, couch, terminal, etc.)
   const props = [
-    { id: "coffee", type: "machine", label: "☕ coffee", x: 120, y: 120, r: 18, solid: true, room: "lobby", visionFill: "#c80" },
-    { id: "whiteboard", type: "board", label: "📋 board", x: 300, y: 90, r: 22, solid: true, room: "lobby", visionFill: "#aac" },
-    { id: "terminal", type: "console", label: "💻 term", x: 700, y: 120, r: 18, solid: true, room: "lab", visionFill: "#0a8" },
-    { id: "server", type: "rack", label: "🖧 rack", x: 820, y: 220, r: 20, solid: true, room: "lab", visionFill: "#66a" },
-    { id: "couch", type: "seat", label: "🛋 couch", x: 180, y: 460, r: 24, solid: true, room: "den", visionFill: "#a64" },
-    { id: "lamp", type: "light", label: "💡 lamp", x: 400, y: 420, r: 14, solid: false, room: "den", visionFill: "#ff5" },
-    { id: "tree", type: "plant", label: "🌳 tree", x: 780, y: 480, r: 22, solid: true, room: "yard", visionFill: "#2a6" },
-    { id: "bench", type: "seat", label: "🪑 bench", x: 700, y: 400, r: 18, solid: true, room: "yard", visionFill: "#864" },
+    { id: "coffee", type: "machine", label: "bar", x: 120, y: 110, r: 20, solid: true, room: "lobby", visionFill: "#c80" },
+    { id: "whiteboard", type: "board", label: "menu", x: 300, y: 90, r: 20, solid: true, room: "lobby", visionFill: "#da8" },
+    { id: "table1", type: "table", label: "table", x: 220, y: 200, r: 22, solid: true, room: "lobby", visionFill: "#864" },
+    { id: "table2", type: "table", label: "table", x: 340, y: 240, r: 20, solid: true, room: "lobby", visionFill: "#864" },
+    { id: "terminal", type: "console", label: "stove", x: 700, y: 120, r: 18, solid: true, room: "lab", visionFill: "#a64" },
+    { id: "server", type: "rack", label: "pantry", x: 820, y: 220, r: 20, solid: true, room: "lab", visionFill: "#753" },
+    { id: "couch", type: "seat", label: "settle", x: 180, y: 460, r: 26, solid: true, room: "den", visionFill: "#a64" },
+    { id: "lamp", type: "light", label: "hearth", x: 400, y: 430, r: 22, solid: false, room: "den", visionFill: "#f84" },
+    { id: "tree", type: "plant", label: "oak", x: 780, y: 480, r: 24, solid: true, room: "yard", visionFill: "#2a6" },
+    { id: "bench", type: "seat", label: "bench", x: 700, y: 400, r: 18, solid: true, room: "yard", visionFill: "#864" },
   ];
 
-  // ambient third "agent" node (state machine, not full VLA)
   const node = {
     id: "node",
-    name: "Node",
+    name: "Innkeep",
     x: 700,
     y: 450,
     phase: 0,
     mood: "idle",
     lastSaid: "",
-    color: "#ffaa00",
+    color: "#e8b060",
   };
 
   return {
     rooms,
     walls,
     props,
-    pickups: [], // no collectibles — pure hangout
+    pickups: [],
     node,
     time: 0,
     beacon: null,
@@ -206,19 +209,26 @@ export function nearestFreePickup() {
 }
 
 /**
- * Map canvas → world. Optional camera: { x, y, zoom } focuses on a point.
+ * Overview framing: always show the whole land (Tavern Master style).
+ * camera.zoom lightly pads in; no tight follow by default.
  */
 export function viewTransform(canvas, camera = null) {
   const cw = canvas.clientWidth;
   const ch = canvas.clientHeight;
-  let scale = Math.min(cw / WORLD_W, ch / WORLD_H);
+  // letterbox with margin so the diorama sits like a board
+  const pad = 0.92;
+  let scale = Math.min(cw / WORLD_W, ch / WORLD_H) * pad;
   let ox = (cw - WORLD_W * scale) / 2;
   let oy = (ch - WORLD_H * scale) / 2;
 
-  if (camera && camera.zoom > 1) {
-    scale *= camera.zoom;
-    ox = cw / 2 - camera.x * scale;
-    oy = ch / 2 - camera.y * scale;
+  // optional gentle zoom on overview (never extreme)
+  if (camera && camera.zoom && camera.zoom !== 1) {
+    const z = Math.min(1.25, Math.max(0.95, camera.zoom));
+    const cx = camera.x ?? WORLD_W / 2;
+    const cy = camera.y ?? WORLD_H / 2;
+    scale *= z;
+    ox = cw / 2 - cx * scale;
+    oy = ch / 2 - cy * scale;
   }
 
   return { scale, ox, oy, cw, ch };
@@ -243,32 +253,47 @@ export function drawWorld(ctx, canvas, world, entities, opts = {}) {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, cw, ch);
 
-  // day phase 0..1 → night/dusk/day tint
-  const day = opts.dayPhase != null ? opts.dayPhase : 0.35;
-  const night = Math.sin(day * Math.PI * 2) * 0.5 + 0.5; // 0 day-ish, 1 night-ish inverted
-  // dayPhase 0 = midnight, 0.25 = dawn, 0.5 = noon, 0.75 = dusk
+  // Cozy tabletop / diorama backdrop
+  const day = opts.dayPhase != null ? opts.dayPhase : 0.4;
   const sun = Math.max(0, Math.sin((day - 0.25) * Math.PI * 2));
-  const skyA = 0.04 + sun * 0.08;
-  const bg = ctx.createRadialGradient(cw * 0.5, ch * 0.35, 20, cw * 0.5, ch * 0.55, Math.max(cw, ch) * 0.8);
-  bg.addColorStop(0, sun > 0.3 ? `rgba(40,55,90,${0.5 + sun * 0.3})` : "#0c1220");
-  bg.addColorStop(0.45, sun > 0.2 ? "#0a1020" : "#060a12");
-  bg.addColorStop(1, "#020308");
+  const bg = ctx.createRadialGradient(cw * 0.5, ch * 0.4, 30, cw * 0.5, ch * 0.55, Math.max(cw, ch) * 0.75);
+  bg.addColorStop(0, sun > 0.35 ? "#3a2a22" : "#1a1418");
+  bg.addColorStop(0.5, "#121018");
+  bg.addColorStop(1, "#0a080c");
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, cw, ch);
-  // warm dusk wash
-  if (day > 0.65 && day < 0.9) {
-    ctx.fillStyle = `rgba(255,120,60,${(1 - Math.abs(day - 0.77) * 8) * 0.06})`;
-    ctx.fillRect(0, 0, cw, ch);
-  }
-  ctx.fillStyle = `rgba(255,255,255,${0.06 + (1 - sun) * 0.12})`;
-  for (let i = 0; i < 48; i++) {
-    ctx.fillRect((i * 97) % cw, (i * 53) % ch, i % 5 === 0 ? 1.5 : 1, i % 5 === 0 ? 1.5 : 1);
+  // wood-grain table feel outside the map
+  ctx.strokeStyle = "rgba(80,50,30,0.15)";
+  for (let i = 0; i < 20; i++) {
+    ctx.beginPath();
+    ctx.moveTo(0, (i * 47 + day * 30) % ch);
+    ctx.bezierCurveTo(cw * 0.3, (i * 47) % ch + 20, cw * 0.7, (i * 47) % ch - 10, cw, (i * 47) % ch);
+    ctx.stroke();
   }
 
   ctx.save();
   ctx.translate(ox, oy);
   ctx.scale(scale, scale);
+  // slight top-down foreshortening (overview, not side-on)
+  ctx.translate(WORLD_W * 0.02, WORLD_H * 0.04);
+  ctx.scale(0.96, 0.88);
   const t = world.time || 0;
+
+  // land board shadow + rim
+  ctx.fillStyle = "rgba(0,0,0,0.45)";
+  roundRect(ctx, 8, 14, WORLD_W - 4, WORLD_H - 4, 18);
+  ctx.fill();
+  ctx.fillStyle = "#1a120e";
+  roundRect(ctx, 0, 0, WORLD_W, WORLD_H, 16);
+  ctx.fill();
+  ctx.strokeStyle = "rgba(200,150,90,0.35)";
+  ctx.lineWidth = 4;
+  roundRect(ctx, 2, 2, WORLD_W - 4, WORLD_H - 4, 14);
+  ctx.stroke();
+  ctx.strokeStyle = "rgba(80,50,30,0.6)";
+  ctx.lineWidth = 2;
+  roundRect(ctx, 8, 8, WORLD_W - 16, WORLD_H - 16, 10);
+  ctx.stroke();
 
   for (const r of world.rooms) drawRoom(ctx, r, t, sun);
   for (const w of world.walls) drawWall(ctx, w);
@@ -367,68 +392,97 @@ export function drawWorld(ctx, canvas, world, entities, opts = {}) {
 }
 
 function drawRoom(ctx, r, t, sun = 0.3) {
-  const floor = ctx.createLinearGradient(r.x, r.y, r.x + r.w, r.y + r.h);
-  floor.addColorStop(0, r.color);
-  floor.addColorStop(1, shade(r.color, -14));
+  // base floor
+  const floor = ctx.createLinearGradient(r.x, r.y, r.x, r.y + r.h);
+  floor.addColorStop(0, shade(r.color, 12));
+  floor.addColorStop(1, shade(r.color, -8));
   ctx.fillStyle = floor;
-  roundRect(ctx, r.x, r.y, r.w, r.h, 8);
+  roundRect(ctx, r.x, r.y, r.w, r.h, 6);
   ctx.fill();
 
   ctx.save();
   ctx.beginPath();
-  roundRect(ctx, r.x, r.y, r.w, r.h, 8);
+  roundRect(ctx, r.x, r.y, r.w, r.h, 6);
   ctx.clip();
-  ctx.strokeStyle = "rgba(255,255,255,0.035)";
-  ctx.lineWidth = 1;
-  const tile = 28;
-  for (let x = r.x; x < r.x + r.w; x += tile) {
-    ctx.beginPath(); ctx.moveTo(x, r.y); ctx.lineTo(x, r.y + r.h); ctx.stroke();
+
+  // floor pattern by type
+  if (r.floor === "grass") {
+    ctx.fillStyle = "rgba(40,90,50,0.35)";
+    for (let i = 0; i < 40; i++) {
+      const gx = r.x + ((i * 73) % r.w);
+      const gy = r.y + ((i * 41) % r.h);
+      ctx.fillRect(gx, gy, 3, 2);
+    }
+  } else if (r.floor === "tile") {
+    ctx.strokeStyle = "rgba(0,0,0,0.12)";
+    const tile = 22;
+    for (let x = r.x; x < r.x + r.w; x += tile) {
+      for (let y = r.y; y < r.y + r.h; y += tile) {
+        ctx.strokeRect(x + 0.5, y + 0.5, tile - 1, tile - 1);
+      }
+    }
+  } else {
+    // wood planks
+    ctx.strokeStyle = "rgba(0,0,0,0.18)";
+    ctx.lineWidth = 1;
+    for (let y = r.y + 6; y < r.y + r.h; y += 16) {
+      ctx.beginPath();
+      ctx.moveTo(r.x, y);
+      ctx.lineTo(r.x + r.w, y);
+      ctx.stroke();
+      // plank seams
+      for (let x = r.x + 20 + (y % 32); x < r.x + r.w; x += 48) {
+        ctx.beginPath();
+        ctx.moveTo(x, y - 16);
+        ctx.lineTo(x, y);
+        ctx.stroke();
+      }
+    }
   }
-  for (let y = r.y; y < r.y + r.h; y += tile) {
-    ctx.beginPath(); ctx.moveTo(r.x, y); ctx.lineTo(r.x + r.w, y); ctx.stroke();
-  }
-  // interior light scales with "day" + room light
-  const lightAmt = r.light * (0.12 + sun * 0.14);
+
+  // warm lamp light
+  const lightAmt = r.light * (0.14 + sun * 0.12);
   const g = ctx.createRadialGradient(
-    r.x + r.w * 0.45, r.y + r.h * 0.4, 16,
+    r.x + r.w * 0.5, r.y + r.h * 0.45, 10,
     r.x + r.w * 0.5, r.y + r.h * 0.5, Math.max(r.w, r.h) * 0.55
   );
-  g.addColorStop(0, hexToRgba(r.accent || "#fff", lightAmt));
+  g.addColorStop(0, hexToRgba(r.accent || "#e8a54b", lightAmt));
   g.addColorStop(1, "rgba(0,0,0,0)");
   ctx.fillStyle = g;
   ctx.fillRect(r.x, r.y, r.w, r.h);
-  // night corner shadow
-  if (sun < 0.35) {
-    ctx.fillStyle = `rgba(0,0,0,${0.15 * (1 - sun * 2)})`;
+  if (sun < 0.3) {
+    ctx.fillStyle = `rgba(0,0,0,${0.12 * (1 - sun * 2)})`;
     ctx.fillRect(r.x, r.y, r.w, r.h);
   }
   ctx.restore();
 
-  ctx.strokeStyle = hexToRgba(r.accent || "#444", 0.28 + sun * 0.1);
-  ctx.lineWidth = 1.5;
-  roundRect(ctx, r.x + 0.5, r.y + 0.5, r.w - 1, r.h - 1, 8);
+  ctx.strokeStyle = hexToRgba(r.accent || "#a80", 0.25);
+  ctx.lineWidth = 2;
+  roundRect(ctx, r.x + 1, r.y + 1, r.w - 2, r.h - 2, 6);
   ctx.stroke();
 
-  ctx.fillStyle = "rgba(0,0,0,0.5)";
-  roundRect(ctx, r.x + 10, r.y + 10, 70, 20, 5);
+  // tiny room plaque
+  ctx.fillStyle = "rgba(40,24,12,0.75)";
+  roundRect(ctx, r.x + 10, r.y + 8, 56, 16, 4);
   ctx.fill();
-  ctx.fillStyle = r.accent || "#888";
-  ctx.font = "bold 11px ui-monospace, Menlo, monospace";
+  ctx.fillStyle = r.accent || "#e8a54b";
+  ctx.font = "bold 10px ui-monospace, Menlo, monospace";
   ctx.textAlign = "left";
-  ctx.fillText(r.name.toUpperCase(), r.x + 16, r.y + 24);
+  ctx.fillText(r.name, r.x + 16, r.y + 19);
 }
 
 function drawWall(ctx, w) {
-  const g = ctx.createLinearGradient(w.x, w.y, w.x + (w.w > w.h ? 0 : w.w), w.y + (w.w > w.h ? w.h : 0));
-  g.addColorStop(0, "#343c50");
-  g.addColorStop(0.45, "#1e2433");
-  g.addColorStop(1, "#12161f");
+  // timber / stone walls
+  const g = ctx.createLinearGradient(w.x, w.y, w.x, w.y + Math.max(w.h, 4));
+  g.addColorStop(0, "#4a3428");
+  g.addColorStop(0.5, "#2e2018");
+  g.addColorStop(1, "#1a120e");
   ctx.fillStyle = g;
   ctx.fillRect(w.x, w.y, w.w, w.h);
-  ctx.fillStyle = "rgba(140,160,200,0.22)";
+  ctx.fillStyle = "rgba(200,160,100,0.2)";
   if (w.w >= w.h) ctx.fillRect(w.x, w.y, w.w, 2);
   else ctx.fillRect(w.x, w.y, 2, w.h);
-  ctx.strokeStyle = "rgba(0,0,0,0.45)";
+  ctx.strokeStyle = "rgba(0,0,0,0.4)";
   ctx.strokeRect(w.x + 0.5, w.y + 0.5, w.w - 1, w.h - 1);
 }
 
@@ -440,12 +494,11 @@ function drawDoorFrames(ctx) {
     { x: 748, y: 320, w: 44, h: 16 },
   ];
   for (const d of doors) {
-    const g = ctx.createLinearGradient(d.x, d.y, d.x + d.w, d.y + d.h);
-    g.addColorStop(0, "rgba(100,170,255,0.12)");
-    g.addColorStop(1, "rgba(100,170,255,0.02)");
-    ctx.fillStyle = g;
+    ctx.fillStyle = "rgba(80,50,30,0.35)";
+    ctx.fillRect(d.x - 2, d.y - 2, d.w + 4, d.h + 4);
+    ctx.fillStyle = "rgba(230,180,100,0.12)";
     ctx.fillRect(d.x, d.y, d.w, d.h);
-    ctx.strokeStyle = "rgba(120,180,255,0.25)";
+    ctx.strokeStyle = "rgba(200,140,70,0.35)";
     ctx.strokeRect(d.x + 0.5, d.y + 0.5, d.w - 1, d.h - 1);
   }
 }
@@ -458,105 +511,110 @@ function drawProp(ctx, p, t) {
   ctx.ellipse(0, p.r * 0.55, p.r * 0.95, p.r * 0.32, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  if (p.id === "coffee") {
-    roundRect(ctx, -14, -18, 28, 28, 5);
-    ctx.fillStyle = "#2a323c";
+  if (p.id === "coffee" || p.label === "bar") {
+    // bar counter
+    roundRect(ctx, -28, -10, 56, 22, 4);
+    ctx.fillStyle = "#5a3a24";
     ctx.fill();
-    ctx.strokeStyle = "rgba(255,255,255,0.08)";
-    ctx.stroke();
-    roundRect(ctx, -10, -8, 20, 10, 3);
+    ctx.fillStyle = "#3a2418";
+    roundRect(ctx, -26, -18, 16, 12, 3);
+    ctx.fill();
     ctx.fillStyle = "#c4783a";
-    ctx.fill();
-    ctx.fillStyle = "#6ec6ff";
-    ctx.globalAlpha = 0.55 + 0.35 * Math.sin(t * 3);
     ctx.beginPath();
-    ctx.arc(0, -12, 3.5, 0, Math.PI * 2);
+    ctx.arc(8, -6, 5, 0, Math.PI * 2);
     ctx.fill();
-    ctx.globalAlpha = 1;
-  } else if (p.type === "board") {
-    roundRect(ctx, -22, -16, 44, 30, 4);
-    ctx.fillStyle = "#eef3f8";
+  } else if (p.type === "board" || p.id === "whiteboard") {
+    roundRect(ctx, -18, -14, 36, 26, 3);
+    ctx.fillStyle = "#2a1810";
     ctx.fill();
-    ctx.strokeStyle = "#8a9aaa";
+    ctx.fillStyle = "#e8d4a8";
+    roundRect(ctx, -14, -10, 28, 18, 2);
+    ctx.fill();
+    ctx.strokeStyle = "#8a6040";
     ctx.stroke();
-    ctx.strokeStyle = "#5a7a9a";
-    ctx.lineWidth = 1.5;
+  } else if (p.type === "table") {
+    ctx.fillStyle = "#6a4430";
     ctx.beginPath();
-    ctx.moveTo(-14, -6);
-    ctx.lineTo(10, -8);
-    ctx.lineTo(12, 6);
-    ctx.stroke();
+    ctx.ellipse(0, 0, 22, 14, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#4a3020";
+    ctx.fillRect(-3, 4, 3, 10);
+    ctx.fillRect(1, 4, 3, 10);
+    // mugs
+    ctx.fillStyle = "#c8a070";
+    ctx.fillRect(-8, -4, 5, 5);
+    ctx.fillRect(4, -3, 5, 5);
   } else if (p.id === "terminal") {
-    roundRect(ctx, -16, -14, 32, 26, 4);
-    ctx.fillStyle = "#1a222c";
+    // stove
+    roundRect(ctx, -18, -12, 36, 26, 4);
+    ctx.fillStyle = "#3a2a28";
     ctx.fill();
-    ctx.fillStyle = "#0d3";
-    ctx.globalAlpha = 0.65 + 0.25 * Math.sin(t * 4);
-    roundRect(ctx, -12, -10, 24, 14, 2);
+    ctx.fillStyle = `rgba(255,100,40,${0.5 + 0.3 * Math.sin(t * 4)})`;
+    roundRect(ctx, -10, -6, 20, 10, 2);
     ctx.fill();
-    ctx.globalAlpha = 1;
   } else if (p.id === "server") {
-    roundRect(ctx, -14, -22, 28, 38, 4);
-    ctx.fillStyle = "#252a38";
+    roundRect(ctx, -16, -20, 32, 36, 3);
+    ctx.fillStyle = "#4a3428";
     ctx.fill();
-    for (let i = 0; i < 4; i++) {
-      ctx.fillStyle = i % 2 ? "#3a8" : "#c44";
-      ctx.globalAlpha = 0.55 + 0.35 * Math.sin(t * 5 + i);
-      ctx.fillRect(-10, -16 + i * 8, 7, 3);
+    for (let i = 0; i < 3; i++) {
+      ctx.fillStyle = "#2a1c14";
+      ctx.fillRect(-12, -14 + i * 10, 24, 7);
     }
-    ctx.globalAlpha = 1;
   } else if (p.id === "couch") {
-    roundRect(ctx, -30, -10, 60, 24, 7);
-    ctx.fillStyle = "#5c3c2c";
+    roundRect(ctx, -28, -8, 56, 20, 6);
+    ctx.fillStyle = "#6a3a2a";
     ctx.fill();
-    roundRect(ctx, -30, -18, 13, 16, 5);
+    roundRect(ctx, -28, -16, 12, 14, 4);
     ctx.fill();
-    roundRect(ctx, 17, -18, 13, 16, 5);
+    roundRect(ctx, 16, -16, 12, 14, 4);
     ctx.fill();
-    ctx.fillStyle = "#7a5040";
-    roundRect(ctx, -24, -8, 48, 14, 5);
+    ctx.fillStyle = "#8a5040";
+    roundRect(ctx, -20, -6, 40, 12, 4);
     ctx.fill();
   } else if (p.id === "lamp") {
-    ctx.strokeStyle = "#778";
-    ctx.lineWidth = 2.5;
+    // hearth
+    ctx.fillStyle = "#3a2a22";
+    roundRect(ctx, -16, -6, 32, 18, 3);
+    ctx.fill();
+    ctx.fillStyle = `rgba(255,140,40,${0.55 + 0.35 * Math.sin(t * 5)})`;
+    ctx.shadowColor = "#ff8020";
+    ctx.shadowBlur = 18;
     ctx.beginPath();
-    ctx.moveTo(0, 10);
-    ctx.lineTo(0, -4);
-    ctx.stroke();
-    ctx.fillStyle = "#ffe08a";
-    ctx.shadowColor = "#ffe08a";
-    ctx.shadowBlur = 22;
-    ctx.beginPath();
-    ctx.arc(0, -12, 9, 0, Math.PI * 2);
+    ctx.moveTo(-8, 6);
+    ctx.quadraticCurveTo(0, -16 - Math.sin(t * 6) * 3, 8, 6);
     ctx.fill();
     ctx.shadowBlur = 0;
   } else if (p.id === "tree") {
     ctx.fillStyle = "#3a2818";
-    ctx.fillRect(-3.5, 2, 7, 14);
-    ctx.fillStyle = "#247a42";
+    ctx.fillRect(-3, 2, 6, 12);
+    ctx.fillStyle = "#2d7a40";
     ctx.beginPath();
-    ctx.arc(0, -4, 15, 0, Math.PI * 2);
+    ctx.arc(0, -4, 14, 0, Math.PI * 2);
     ctx.fill();
-    ctx.fillStyle = "#36b85e";
+    ctx.fillStyle = "#3db85a";
     ctx.beginPath();
-    ctx.arc(-7, -10, 9, 0, Math.PI * 2);
-    ctx.arc(8, -8, 8, 0, Math.PI * 2);
+    ctx.arc(-5, -8, 8, 0, Math.PI * 2);
+    ctx.arc(6, -6, 7, 0, Math.PI * 2);
     ctx.fill();
   } else if (p.id === "bench") {
     ctx.fillStyle = "#5a4030";
-    roundRect(ctx, -22, -4, 44, 11, 3);
+    roundRect(ctx, -20, -3, 40, 9, 2);
     ctx.fill();
-    ctx.fillRect(-19, 7, 5, 9);
-    ctx.fillRect(14, 7, 5, 9);
+    ctx.fillRect(-17, 6, 4, 7);
+    ctx.fillRect(13, 6, 4, 7);
   } else {
-    ctx.fillStyle = p.visionFill || "#444";
+    ctx.fillStyle = p.visionFill || "#543";
     ctx.beginPath();
-    ctx.arc(0, 0, p.r, 0, Math.PI * 2);
+    ctx.arc(0, 0, p.r * 0.7, 0, Math.PI * 2);
     ctx.fill();
   }
-
-  const label = (p.label || p.id).replace(/^[^\w#]*/u, "").trim() || p.id;
-  drawNameplate(ctx, 0, -p.r - 16, label, "#b8c4d4");
+  // no big nameplates — overview clutter; tiny ticks only for key props
+  if (["coffee", "couch", "lamp", "tree"].includes(p.id)) {
+    ctx.fillStyle = "rgba(255,220,160,0.35)";
+    ctx.font = "8px ui-monospace, monospace";
+    ctx.textAlign = "center";
+    ctx.fillText(p.label || p.id, 0, p.r + 10);
+  }
   ctx.restore();
 }
 
@@ -603,16 +661,19 @@ function drawOrb(ctx, p, t, isTarget) {
 }
 
 function drawEntity(ctx, e, highlight, t = 0) {
-  const bob = e.walkPhase != null ? Math.sin(e.walkPhase) * 2.2 : 0;
+  const sc = e.kind === "human" ? CHAR_SCALE * 0.95 : CHAR_SCALE;
+  const bob = e.walkPhase != null ? Math.sin(e.walkPhase) * 1.6 : 0;
   const ang = e.angle ?? 0;
   const walking = !!(e.moving || (e.walkPhase != null && Math.abs(Math.sin(e.walkPhase || 0)) > 0.15));
 
   ctx.save();
   ctx.translate(e.x, e.y);
-  ctx.fillStyle = "rgba(0,0,0,0.4)";
+  // soft oval shadow (overview)
+  ctx.fillStyle = "rgba(0,0,0,0.35)";
   ctx.beginPath();
-  ctx.ellipse(0, 11, 13, 5, 0, 0, Math.PI * 2);
+  ctx.ellipse(0, 4 * sc + 2, 9 * sc, 3.5 * sc, 0, 0, Math.PI * 2);
   ctx.fill();
+  ctx.scale(sc, sc);
   ctx.translate(0, bob);
 
   if (e.kind === "human") {
@@ -670,22 +731,30 @@ function drawEntity(ctx, e, highlight, t = 0) {
   }
 
   if (e.kind === "node") {
-    ctx.shadowColor = "#ffaa00";
-    ctx.shadowBlur = 18;
-    roundRect(ctx, -13, -13, 26, 26, 6);
-    const ng = ctx.createLinearGradient(-13, -13, 13, 13);
-    ng.addColorStop(0, "#ffd866");
-    ng.addColorStop(1, "#cc7700");
+    // little innkeep NPC
+    ctx.fillStyle = shade(e.color || "#e8b060", -30);
+    ctx.fillRect(-5, 6, 4, 7);
+    ctx.fillRect(1, 6, 4, 7);
+    ctx.shadowColor = e.color || "#e8b060";
+    ctx.shadowBlur = 10;
+    const ng = ctx.createLinearGradient(-10, -8, 10, 12);
+    ng.addColorStop(0, "#ffd080");
+    ng.addColorStop(1, "#c07020");
     ctx.fillStyle = ng;
+    roundRect(ctx, -9, -6, 18, 16, 5);
     ctx.fill();
     ctx.shadowBlur = 0;
-    ctx.strokeStyle = "rgba(255,255,200,0.45)";
-    ctx.stroke();
-    ctx.fillStyle = "#2a1800";
-    ctx.font = "bold 11px monospace";
-    ctx.textAlign = "center";
-    ctx.fillText("N", 0, 4);
-    drawNameplate(ctx, 0, -26, "NODE", "#fc6");
+    ctx.fillStyle = "#f5d0a0";
+    roundRect(ctx, -7, -18, 14, 12, 4);
+    ctx.fill();
+    ctx.fillStyle = "#3a2010";
+    ctx.fillRect(-4, -14, 2.5, 3);
+    ctx.fillRect(1.5, -14, 2.5, 3);
+    // apron
+    ctx.fillStyle = "rgba(255,255,255,0.35)";
+    roundRect(ctx, -6, 0, 12, 8, 2);
+    ctx.fill();
+    drawNameplate(ctx, 0, -28, e.name || "Innkeep", "#e8b060");
     ctx.restore();
     return;
   }

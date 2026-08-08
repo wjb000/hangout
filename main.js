@@ -93,8 +93,9 @@ let lastMotor = 0;
 let lastStepSfx = { bit: 0, nox: 0 };
 let callPulse = 0;
 let juice = 0;
-let spectator = true;
-let cam = { x: WORLD_W / 2, y: WORLD_H / 2, zoom: 1.1, tx: WORLD_W / 2, ty: WORLD_H / 2, tz: 1.1 };
+// overview diorama (Tavern Master style) — full land visible by default
+let spectator = false;
+let cam = { x: WORLD_W / 2, y: WORLD_H / 2, zoom: 1, tx: WORLD_W / 2, ty: WORLD_H / 2, tz: 1 };
 let dayPhase = 0.35; // 0..1
 
 const transcript = [];
@@ -761,7 +762,7 @@ function tickNode(dt) {
   n.x += (dx / L) * 32 * dt;
   n.y += (dy / L) * 32 * dt;
   if (Math.random() < 0.0009 && agents.some((a) => dist(a, n) < 110)) {
-    logSpeech("Node", pick(["ambient ok", "listening", "void stable", "…"]), "node", n);
+    logSpeech("Innkeep", pick(["fresh bread soon", "mind the hearth", "good evening", "…"]), "node", n);
   }
 }
 function pick(a) { return a[Math.floor(Math.random() * a.length)]; }
@@ -782,17 +783,21 @@ function ambientFX() {
 }
 
 function updateCamera(dt) {
+  // Default: calm overview of the whole land.
+  // Optional "follow" gently frames both dwellers without losing the map.
   if (spectator) {
     cam.tx = (bit.x + nox.x) / 2;
-    cam.ty = (bit.y + nox.y) / 2 - 10;
+    cam.ty = (bit.y + nox.y) / 2;
     const d = dist(bit, nox);
-    cam.tz = d < 90 ? 1.45 : d < 200 ? 1.2 : 1.08;
+    cam.tz = d < 120 ? 1.12 : 1.05;
   } else {
-    cam.tx = WORLD_W / 2; cam.ty = WORLD_H / 2; cam.tz = 1;
+    cam.tx = WORLD_W / 2;
+    cam.ty = WORLD_H / 2;
+    cam.tz = 1;
   }
-  cam.x += (cam.tx - cam.x) * Math.min(1, dt * 2.6);
-  cam.y += (cam.ty - cam.y) * Math.min(1, dt * 2.6);
-  cam.zoom += (cam.tz - cam.zoom) * Math.min(1, dt * 2);
+  cam.x += (cam.tx - cam.x) * Math.min(1, dt * 1.8);
+  cam.y += (cam.ty - cam.y) * Math.min(1, dt * 1.8);
+  cam.zoom += (cam.tz - cam.zoom) * Math.min(1, dt * 1.5);
 }
 
 function entityList() {
@@ -821,8 +826,9 @@ function socialLine() {
 }
 
 function paint() {
+  // Always pass camera for soft framing; overview keeps zoom ≈ 1
   drawWorld(wctx, worldCanvas, world, entityList(), {
-    camera: spectator ? { x: cam.x, y: cam.y, zoom: cam.zoom } : null,
+    camera: { x: cam.x, y: cam.y, zoom: cam.zoom },
     targetLines: socialLine(),
     path: human.path,
     dayPhase,
@@ -1095,7 +1101,7 @@ window.addEventListener("keydown", (e) => {
   unlockAudio();
   const k = e.key.toLowerCase();
   if (k === "d") { debugOn = !debugOn; debugEl?.classList.toggle("hidden", !debugOn); }
-  if (k === "c") { spectator = !spectator; toast(spectator ? "Spectator" : "Wide"); }
+  if (k === "c") { spectator = !spectator; toast(spectator ? "Follow dwellers" : "Overview"); }
   if (k === "q") doCall();
   if (k === "e") doBeacon();
   if (k === "b") cycleBrain();
@@ -1105,7 +1111,7 @@ document.getElementById("m-call")?.addEventListener("click", doCall);
 document.getElementById("m-beacon")?.addEventListener("click", doBeacon);
 document.getElementById("m-cam")?.addEventListener("click", () => {
   spectator = !spectator;
-  toast(spectator ? "Spectator" : "Wide");
+  toast(spectator ? "Follow" : "Overview");
 });
 document.getElementById("m-brain")?.addEventListener("click", cycleBrain);
 
