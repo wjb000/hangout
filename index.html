@@ -3,98 +3,103 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
-  <title>Hangout · Little Land</title>
+  <title>Little Land</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <div id="hud-top">
-    <div id="brand">
-      <span class="logo">Little Land</span>
-      <span id="day-label">dusk</span>
-      <span id="brain-mode" title="cycle brain">hybrid</span>
-    </div>
-    <div id="topic-bar" class="hidden">
-      <span class="topic-tag">chatting</span>
-      <span id="topic-text">—</span>
-    </div>
-    <div id="agent-cards">
-      <div class="acard bit" id="card-bit">
-        <div class="acard-head">
-          <span class="dot"></span>
-          <strong>Bit</strong>
-          <span class="act" id="bit-act">roam</span>
-        </div>
-        <div class="meters">
-          <div class="m"><i id="bit-energy"></i></div>
-          <div class="m social"><i id="bit-social"></i></div>
-        </div>
-        <div class="goal" id="bit-goal">…</div>
-      </div>
-      <div class="acard nox" id="card-nox">
-        <div class="acard-head">
-          <span class="dot"></span>
-          <strong>Nox</strong>
-          <span class="act" id="nox-act">roam</span>
-        </div>
-        <div class="meters">
-          <div class="m"><i id="nox-energy"></i></div>
-          <div class="m social"><i id="nox-social"></i></div>
-        </div>
-        <div class="goal" id="nox-goal">…</div>
+  <canvas id="world" aria-label="little land"></canvas>
+
+  <!-- Top: minimal brand + clock -->
+  <header id="topbar">
+    <div class="brand">
+      <span class="crest">⌂</span>
+      <div>
+        <div class="title">Little Land</div>
+        <div class="sub" id="day-label">dusk settles</div>
       </div>
     </div>
-    <div id="status">waking the land…</div>
-    <div id="rel-bar"></div>
+    <div id="clock-ring" title="day cycle">
+      <svg viewBox="0 0 36 36" class="ring">
+        <circle cx="18" cy="18" r="15" class="ring-bg" />
+        <circle cx="18" cy="18" r="15" class="ring-fg" id="day-ring" />
+      </svg>
+      <span id="clock-text">—</span>
+    </div>
+  </header>
+
+  <!-- Floating topic when they talk -->
+  <div id="topic-pill" class="hidden">
+    <span class="pulse"></span>
+    <span id="topic-text">…</span>
   </div>
+
+  <!-- Bottom dock: dwellers + controls -->
+  <footer id="dock">
+    <div class="dwellers">
+      <button type="button" class="dweller bit" id="focus-bit" data-id="bit">
+        <span class="avatar bit-av"></span>
+        <span class="meta">
+          <strong>Bit</strong>
+          <em id="bit-act">roaming</em>
+        </span>
+        <span class="bars">
+          <i id="bit-energy" class="en"></i>
+          <i id="bit-social" class="so"></i>
+        </span>
+      </button>
+      <button type="button" class="dweller nox" id="focus-nox" data-id="nox">
+        <span class="avatar nox-av"></span>
+        <span class="meta">
+          <strong>Nox</strong>
+          <em id="nox-act">roaming</em>
+        </span>
+        <span class="bars">
+          <i id="nox-energy" class="en"></i>
+          <i id="nox-social" class="so"></i>
+        </span>
+      </button>
+      <div class="rel" id="rel-bar">♥ ···</div>
+    </div>
+
+    <div class="controls">
+      <div class="speed" title="sim speed">
+        <button type="button" data-speed="0" id="spd-0">❚❚</button>
+        <button type="button" data-speed="0.5" id="spd-05">½</button>
+        <button type="button" data-speed="1" id="spd-1" class="on">1×</button>
+        <button type="button" data-speed="2" id="spd-2">2×</button>
+      </div>
+      <button type="button" class="tool" id="btn-call" title="Call (Q)">◎</button>
+      <button type="button" class="tool" id="btn-beacon" title="Beacon (E)">✦</button>
+      <button type="button" class="tool" id="btn-view" title="View (C)">◉</button>
+      <button type="button" class="tool" id="btn-brain" title="Brain (B)">◈</button>
+    </div>
+  </footer>
+
+  <!-- Chat as soft log over the land -->
+  <div id="chatlog" aria-label="voices"></div>
+  <div id="status" class="hidden">…</div>
 
   <div id="onboard" class="hidden">
     <div class="onboard-card">
+      <div class="crest-lg">⌂</div>
       <h2>Little Land</h2>
-      <p class="onboard-lead">
-        A cozy overview of a virtual tavern-land. Tiny dwellers live their day —
-        you watch from above, like Tavern Master.
-      </p>
-      <ul class="onboard-list">
-        <li><b>Hall · Kitchen · Hearth · Garden</b></li>
-        <li>Bit &amp; Nox roam, rest, work, and chat</li>
-        <li>Optional: call them, plant a beacon, wander as You</li>
+      <p>A small tavern-world. Tiny people live their day while you watch from above.</p>
+      <ul>
+        <li>Morning kitchen · afternoon roam · evening hearth · night rest</li>
+        <li>Click a dweller to glance at them</li>
+        <li>Speed the day with ½ / 1× / 2×</li>
       </ul>
-      <p class="onboard-keys"><kbd>C</kbd> overview / follow · <kbd>Q</kbd> call · <kbd>D</kbd> debug</p>
-      <button type="button">Look upon the land</button>
+      <button type="button" id="enter-btn">Watch the land</button>
     </div>
   </div>
 
-  <div id="phase-banner" class="hidden">
-    <div class="pb-title">LITTLE LAND</div>
-    <div class="pb-sub">they live here</div>
-  </div>
-
-  <canvas id="world" aria-label="little land overview"></canvas>
-
-  <!-- eye feed is optional / secondary for overview mode -->
-  <div id="side-panels" class="compact">
-    <canvas id="vision" width="256" height="160" aria-label="peek"></canvas>
-    <div id="vision-meta">peek</div>
-    <canvas id="minimap" width="176" height="110" aria-label="map"></canvas>
-  </div>
-
   <div id="toasts"></div>
-  <div id="chatlog"></div>
-
-  <div id="debug" class="hidden">
-    <div class="dbg-title">debug <kbd>D</kbd></div>
-    <pre id="dbg-body"></pre>
-  </div>
-
-  <div id="mobile-bar">
-    <button type="button" id="m-call">Call</button>
-    <button type="button" id="m-beacon">Beacon</button>
-    <button type="button" id="m-cam">View</button>
-    <button type="button" id="m-brain">Brain</button>
-  </div>
-
+  <div id="debug" class="hidden"><pre id="dbg-body"></pre></div>
   <div id="progress"><i></i></div>
-  <div id="hint">overview of their world · <kbd>C</kbd> follow · sit back and watch</div>
+
+  <!-- Hidden canvases for VLA / map (not primary UI) -->
+  <canvas id="vision" width="256" height="160" class="offscreen"></canvas>
+  <canvas id="minimap" width="1" height="1" class="offscreen"></canvas>
 
   <script type="module" src="main.js"></script>
 </body>

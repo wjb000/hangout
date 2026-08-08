@@ -39,6 +39,7 @@ import {
   planSocial,
   hybridSocial,
   endDialogue,
+  dayBlock,
 } from "./social.js";
 import { setNavTo, clearNav, followNav } from "./pathfind.js";
 
@@ -46,13 +47,13 @@ const MODEL_CANDIDATES = [
   "HuggingFaceTB/SmolVLM-256M-Instruct",
   "HuggingFaceTB/SmolVLM-500M-Instruct",
 ];
-const MOVE_SPEED = 112;
+const MOVE_SPEED = 100;
 const HEAR_RANGE = 175;
-const VLA_GAP_MS = 160;
-const MEMORY_KEY = "hangout_living_v1";
-const CHAT_MAX = 20;
-const CHAT_FADE_MS = 16000;
-const DAY_LEN = 180; // seconds per full day cycle
+const VLA_GAP_MS = 200;
+const MEMORY_KEY = "hangout_living_v2";
+const CHAT_MAX = 16;
+const CHAT_FADE_MS = 14000;
+const DAY_LEN = 240; // slower, watchable day
 
 const MOVES = new Set([
   "forward", "back", "left", "right", "turn_left", "turn_right",
@@ -65,7 +66,6 @@ let brainMode = "hybrid";
 
 const worldCanvas = document.getElementById("world");
 const visionCanvas = document.getElementById("vision");
-const visionMeta = document.getElementById("vision-meta");
 const minimapCanvas = document.getElementById("minimap");
 const chatlog = document.getElementById("chatlog");
 const statusEl = document.getElementById("status");
@@ -75,13 +75,15 @@ const progressBar = progressEl?.querySelector("i");
 const debugEl = document.getElementById("debug");
 const dbgBody = document.getElementById("dbg-body");
 const toastsEl = document.getElementById("toasts");
-const brainModeEl = document.getElementById("brain-mode");
+const brainModeEl = document.getElementById("btn-brain");
 const dayLabel = document.getElementById("day-label");
-const topicBar = document.getElementById("topic-bar");
+const topicPill = document.getElementById("topic-pill");
 const topicText = document.getElementById("topic-text");
+const dayRing = document.getElementById("day-ring");
+const clockText = document.getElementById("clock-text");
 
 const wctx = worldCanvas.getContext("2d");
-const mctx = minimapCanvas.getContext("2d");
+const mctx = minimapCanvas?.getContext("2d");
 
 let world = createWorld();
 let processor = null;
@@ -93,10 +95,11 @@ let lastMotor = 0;
 let lastStepSfx = { bit: 0, nox: 0 };
 let callPulse = 0;
 let juice = 0;
-// overview diorama (Tavern Master style) — full land visible by default
-let spectator = false;
+let spectator = false; // overview by default
 let cam = { x: WORLD_W / 2, y: WORLD_H / 2, zoom: 1, tx: WORLD_W / 2, ty: WORLD_H / 2, tz: 1 };
-let dayPhase = 0.35; // 0..1
+let dayPhase = 0.28; // start morning-ish
+let simSpeed = 1;
+let focusId = null; // brief glance
 
 const transcript = [];
 const dialogue = createDialogue();
@@ -222,9 +225,10 @@ loadMemory();
 
 // ── UI ──────────────────────────────────────────────────────
 function setStatus(t, kind = "") {
+  if (!statusEl) return;
   statusEl.textContent = t;
   statusEl.className = kind;
-  statusEl.style.opacity = "1";
+  // keep hidden — status is secondary now
 }
 function escapeHtml(s) {
   return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -241,41 +245,63 @@ function juicePop(a = 0.35) {
   juice = Math.max(juice, a);
 }
 function updateBrainLabel() {
-  if (brainModeEl) brainModeEl.textContent = brainMode;
+  /* brain shown via toast */
 }
 function dayName(p) {
-  if (p < 0.2 || p >= 0.9) return "night";
-  if (p < 0.35) return "dawn";
-  if (p < 0.55) return "day";
-  if (p < 0.72) return "afternoon";
-  return "dusk";
+  const b = dayBlock(p);
+  if (b === "night") return "night hush";
+  if (b === "morning") return "morning stir";
+  if (b === "day") return "busy day";
+  if (b === "evening") return "evening glow";
+  return "soft dusk";
+}
+function clockLabel(p) {
+  const h = Math.floor(p * 24) % 24;
+  const m = Math.floor((p * 24 * 60) % 60);
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 function updateCards() {
   const set = (id, a) => {
     const e = document.getElementById(`${id}-energy`);
     const s = document.getElementById(`${id}-social`);
     const act = document.getElementById(`${id}-act`);
-    const goal = document.getElementById(`${id}-goal`);
     if (e) e.style.width = `${Math.round(a.energy * 100)}%`;
     if (s) s.style.width = `${Math.round(a.social * 100)}%`;
-    if (act) act.textContent = a.activity || a.move || "…";
-    if (goal) goal.textContent = a.goal || "…";
+    if (act) {
+      const labels = {
+        roam: "roaming", chat: "talking", sit: "resting",
+        work: "working", use: "busy", follow: "coming",
+      };
+      act.textContent = labels[a.activity] || a.activity || a.move || "…";
+    }
   };
   set("bit", bit);
   set("nox", nox);
 
-  if (dialogue.active && topicBar && topicText) {
-    topicBar.classList.remove("hidden");
+  if (dialogue.active && topicPill && topicText) {
+    topicPill.classList.remove("hidden");
     topicText.textContent = dialogue.topic || "…";
-  } else if (topicBar) {
-    topicBar.classList.add("hidden");
+  } else if (topicPill) {
+    topicPill.classList.add("hidden");
   }
 
   if (dayLabel) dayLabel.textContent = dayName(dayPhase);
-  if (relBar) {
-    const f = (v) => (v > 0.35 ? "♥" : v < -0.15 ? "💢" : "·");
-    relBar.textContent = `Bit↔Nox ${f(relations.bit_nox)} ${relations.bit_nox.toFixed(2)}`;
+  if (clockText) clockText.textContent = clockLabel(dayPhase);
+  if (dayRing) {
+    // circumference ~ 94
+    const offset = 94 * (1 - dayPhase);
+    dayRing.style.strokeDashoffset = String(offset);
   }
+  if (relBar) {
+    const v = relations.bit_nox;
+    const heart = v > 0.4 ? "♥♥" : v > 0.15 ? "♥" : v < -0.1 ? "…" : "·";
+    relBar.textContent = `${heart} ${v.toFixed(2)}`;
+  }
+
+  // speed buttons
+  document.querySelectorAll(".speed button").forEach((btn) => {
+    btn.classList.toggle("on", Number(btn.dataset.speed) === simSpeed);
+  });
 }
 
 function setThought(agent, text) {
@@ -494,8 +520,10 @@ function ctxFor(agent) {
     callPulse,
     forceHeuristic: brainMode === "heuristic",
     heuristicOnly: brainMode === "heuristic",
+    preferSocial: brainMode !== "vlm", // life sim first unless pure VLM
     assignTarget: human.assign,
     rel: relations.bit_nox,
+    dayBlock: dayBlock(dayPhase),
   };
 }
 
@@ -783,21 +811,23 @@ function ambientFX() {
 }
 
 function updateCamera(dt) {
-  // Default: calm overview of the whole land.
-  // Optional "follow" gently frames both dwellers without losing the map.
-  if (spectator) {
+  if (focusId) {
+    const a = focusId === "nox" ? nox : bit;
+    cam.tx = a.x;
+    cam.ty = a.y;
+    cam.tz = 1.18;
+  } else if (spectator) {
     cam.tx = (bit.x + nox.x) / 2;
     cam.ty = (bit.y + nox.y) / 2;
-    const d = dist(bit, nox);
-    cam.tz = d < 120 ? 1.12 : 1.05;
+    cam.tz = dist(bit, nox) < 140 ? 1.1 : 1.04;
   } else {
     cam.tx = WORLD_W / 2;
     cam.ty = WORLD_H / 2;
     cam.tz = 1;
   }
-  cam.x += (cam.tx - cam.x) * Math.min(1, dt * 1.8);
-  cam.y += (cam.ty - cam.y) * Math.min(1, dt * 1.8);
-  cam.zoom += (cam.tz - cam.zoom) * Math.min(1, dt * 1.5);
+  cam.x += (cam.tx - cam.x) * Math.min(1, dt * 2);
+  cam.y += (cam.ty - cam.y) * Math.min(1, dt * 2);
+  cam.zoom += (cam.tz - cam.zoom) * Math.min(1, dt * 1.6);
 }
 
 function entityList() {
@@ -840,8 +870,10 @@ function paint() {
     wctx.fillRect(0, 0, worldCanvas.width, worldCanvas.height);
     wctx.restore();
   }
-  mctx.clearRect(0, 0, minimapCanvas.width, minimapCanvas.height);
-  drawMinimap(mctx, 0, 0, minimapCanvas.width, minimapCanvas.height, world, entityList());
+  if (mctx && minimapCanvas.width > 2) {
+    mctx.clearRect(0, 0, minimapCanvas.width, minimapCanvas.height);
+    drawMinimap(mctx, 0, 0, minimapCanvas.width, minimapCanvas.height, world, entityList());
+  }
   updateCards();
   if (debugOn && dbgBody) {
     dbgBody.textContent = [
@@ -857,16 +889,19 @@ function paint() {
 
 // ── Loops ───────────────────────────────────────────────────
 function motorLoop(now) {
-  let dt = Math.min(0.05, (now - (lastMotor || now)) / 1000);
+  let rawDt = Math.min(0.05, (now - (lastMotor || now)) / 1000);
   lastMotor = now;
-  if (juice > 0) juice = Math.max(0, juice - dt * 1.5);
+  const dt = rawDt * (simSpeed <= 0 ? 0 : simSpeed);
+  if (juice > 0) juice = Math.max(0, juice - rawDt * 1.5);
 
-  world.time += dt;
-  dayPhase = (dayPhase + dt / DAY_LEN) % 1;
-  tickDialogue(dialogue, dt);
-  updateCamera(dt);
+  if (simSpeed > 0) {
+    world.time += dt;
+    dayPhase = (dayPhase + dt / DAY_LEN) % 1;
+    tickDialogue(dialogue, dt);
+  }
+  updateCamera(rawDt);
 
-  if (running) {
+  if (running && simSpeed > 0) {
     if (callPulse > 0) callPulse -= dt;
     // break dialogue if far
     if (dialogue.active && dist(bit, nox) > 130) {
@@ -912,8 +947,8 @@ async function think(agent) {
 async function vlaLoop() {
   let i = 0;
   while (true) {
-    if (!running) {
-      await sleep(400);
+    if (!running || simSpeed <= 0) {
+      await sleep(200);
       continue;
     }
     // Prefer speaker who should reply in dialogue
@@ -921,16 +956,23 @@ async function vlaLoop() {
     if (dialogue.active && dialogue.lastSpeaker) {
       agent = dialogue.lastSpeaker === "bit" ? nox : bit;
     }
-    if (!model) {
-      applyAction(
-        agent,
-        planSocial(agent, agent === bit ? nox : bit, human, world, dialogue, ctxFor(agent))
-      );
+    // Life sim: social planner is primary; VLM is optional spice
+    if (!model || model.heuristic || brainMode === "heuristic" || brainMode === "hybrid") {
+      // hybrid still uses VLM sometimes for flavor
+      if (brainMode === "hybrid" && model && !model.heuristic && Math.random() < 0.22) {
+        await think(agent);
+      } else {
+        applyAction(
+          agent,
+          planSocial(agent, agent === bit ? nox : bit, human, world, dialogue, ctxFor(agent))
+        );
+      }
     } else {
       await think(agent);
     }
     i++;
-    await sleep(brainMode === "heuristic" ? 380 : VLA_GAP_MS);
+    const gap = brainMode === "vlm" ? VLA_GAP_MS : 420 / Math.max(0.5, simSpeed);
+    await sleep(gap);
   }
 }
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
@@ -992,38 +1034,49 @@ async function boot() {
 
 function finishBoot() {
   sfx.boot();
-  trySay(bit, "the rooms feel awake today");
-  trySay(nox, "don't narrate it");
-  juicePop(0.25);
+  // Prefer snappy life sim — VLM optional in background
+  if (brainMode === "hybrid") {
+    /* social-first already */
+  }
+  trySay(bit, "morning already?");
+  trySay(nox, "don't start.");
+  juicePop(0.2);
   setStatus(`live · ${modelId}`, "");
   const onboard = document.getElementById("onboard");
   if (onboard) {
     onboard.classList.remove("hidden");
     const go = () => { onboard.classList.add("hidden"); unlockAudio(); };
+    document.getElementById("enter-btn")?.addEventListener("click", go, { once: true });
     onboard.querySelector("button")?.addEventListener("click", go, { once: true });
-    setTimeout(go, 11000);
-  }
-  const banner = document.getElementById("phase-banner");
-  if (banner) {
-    banner.classList.remove("hidden");
-    banner.classList.add("show");
-    setTimeout(() => {
-      banner.classList.add("out");
-      setTimeout(() => banner.classList.add("hidden"), 450);
-    }, 1300);
+    setTimeout(go, 14000);
   }
 }
 
 function cycleBrain() {
   const order = ["hybrid", "heuristic", "vlm"];
   brainMode = order[(order.indexOf(brainMode) + 1) % order.length];
-  updateBrainLabel();
   saveMemory();
-  toast(`Brain: ${brainMode}`, "good");
-  if (brainMode !== "heuristic" && (!model || model.heuristic)) {
+  toast(`Mind: ${brainMode}`, "good");
+  if (brainMode === "vlm" && (!model || model.heuristic)) {
     model = null;
     boot();
   }
+}
+
+function setSpeed(s) {
+  simSpeed = s;
+  updateCards();
+  if (s === 0) toast("Paused");
+  else toast(`${s}× time`);
+}
+
+function glanceAt(id) {
+  focusId = id;
+  const a = id === "nox" ? nox : bit;
+  toast(`${a.name} — ${a.activity}`, "good");
+  setTimeout(() => {
+    if (focusId === id) focusId = null;
+  }, 3500);
 }
 
 // ── Input ───────────────────────────────────────────────────
@@ -1101,19 +1154,28 @@ window.addEventListener("keydown", (e) => {
   unlockAudio();
   const k = e.key.toLowerCase();
   if (k === "d") { debugOn = !debugOn; debugEl?.classList.toggle("hidden", !debugOn); }
-  if (k === "c") { spectator = !spectator; toast(spectator ? "Follow dwellers" : "Overview"); }
+  if (k === "c") { spectator = !spectator; focusId = null; toast(spectator ? "Follow" : "Overview"); }
   if (k === "q") doCall();
   if (k === "e") doBeacon();
   if (k === "b") cycleBrain();
+  if (k === " " || k === "0") { e.preventDefault(); setSpeed(simSpeed === 0 ? 1 : 0); }
+  if (k === "1") setSpeed(1);
+  if (k === "2") setSpeed(2);
 });
-brainModeEl?.addEventListener("click", cycleBrain);
-document.getElementById("m-call")?.addEventListener("click", doCall);
-document.getElementById("m-beacon")?.addEventListener("click", doBeacon);
-document.getElementById("m-cam")?.addEventListener("click", () => {
+
+document.getElementById("btn-call")?.addEventListener("click", doCall);
+document.getElementById("btn-beacon")?.addEventListener("click", doBeacon);
+document.getElementById("btn-view")?.addEventListener("click", () => {
   spectator = !spectator;
+  focusId = null;
   toast(spectator ? "Follow" : "Overview");
 });
-document.getElementById("m-brain")?.addEventListener("click", cycleBrain);
+document.getElementById("btn-brain")?.addEventListener("click", cycleBrain);
+document.getElementById("focus-bit")?.addEventListener("click", () => glanceAt("bit"));
+document.getElementById("focus-nox")?.addEventListener("click", () => glanceAt("nox"));
+document.querySelectorAll(".speed button").forEach((btn) => {
+  btn.addEventListener("click", () => setSpeed(Number(btn.dataset.speed)));
+});
 
 // Start
 updateBrainLabel();
