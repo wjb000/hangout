@@ -150,6 +150,47 @@
       text-overflow: ellipsis;
       pointer-events: none;
     }
+
+    /* Minecraft-style chat log (bottom-left) */
+    #chatlog {
+      position: fixed;
+      left: 8px;
+      bottom: 28px;
+      width: min(420px, calc(100vw - 16px));
+      max-height: min(280px, 42vh);
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+      gap: 2px;
+      z-index: 20;
+      pointer-events: none;
+      overflow: hidden;
+    }
+
+    #chatlog .line {
+      padding: 3px 6px;
+      background: rgba(0, 0, 0, 0.45);
+      color: #fff;
+      font-family: "Courier New", ui-monospace, monospace;
+      font-size: 13px;
+      line-height: 1.35;
+      text-shadow: 1px 1px 0 #000;
+      word-break: break-word;
+      opacity: 1;
+      transition: opacity 1.2s ease;
+    }
+
+    #chatlog .line.fade {
+      opacity: 0;
+    }
+
+    #chatlog .line .name { color: #55ffff; }
+    #chatlog .line.sys { color: #ffff55; }
+    #chatlog .line.goal { color: #55ff55; }
+    #chatlog .line.move { color: #aaaaaa; }
+    #chatlog .line.mood { color: #ff55ff; }
+    #chatlog .line.err { color: #ff5555; }
+    #chatlog .line.chat { color: #ffffff; }
   </style>
 </head>
 <body>
@@ -164,6 +205,7 @@
       <div class="leg r"></div>
     </div>
   </div>
+  <div id="chatlog" aria-label="chat log"></div>
   <div id="status">waking…</div>
   <div id="progress"><i></i></div>
 
@@ -194,6 +236,11 @@
     const goalEl = document.getElementById("goal");
     const progressEl = document.getElementById("progress");
     const progressBar = progressEl.querySelector("i");
+    const chatlog = document.getElementById("chatlog");
+
+    const CHAT_MAX = 14;
+    const CHAT_FADE_MS = 12000;
+    const CHAT_REMOVE_MS = 14000;
 
     let engine = null;
     let thinking = false;
@@ -202,6 +249,8 @@
     let lastFrame = 0;
     let tickCount = 0;
     let speedMul = 1;
+    let lastLoggedMove = "";
+    let lastLoggedGoal = "";
 
     // autonomous mind state — persists across decisions
     const mind = {
@@ -227,9 +276,46 @@
       statusEl.className = kind;
     }
 
+    /** Minecraft-style chat line in the corner */
+    function chat(msg, kind = "sys") {
+      if (!msg) return;
+      const line = document.createElement("div");
+      line.className = `line ${kind}`;
+
+      if (kind === "chat") {
+        line.innerHTML =
+          `<span class="name">&lt;Sprite&gt;</span> ${escapeHtml(String(msg))}`;
+      } else {
+        line.textContent = String(msg);
+      }
+
+      chatlog.appendChild(line);
+      while (chatlog.children.length > CHAT_MAX) {
+        chatlog.removeChild(chatlog.firstChild);
+      }
+
+      setTimeout(() => line.classList.add("fade"), CHAT_FADE_MS);
+      setTimeout(() => line.remove(), CHAT_REMOVE_MS);
+    }
+
+    function escapeHtml(s) {
+      return s
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
     function setGoalLabel(g) {
-      mind.goal = g || mind.goal;
+      const next = (g || mind.goal || "").trim();
+      if (!next) return;
+      const changed = next !== mind.goal && next !== lastLoggedGoal;
+      mind.goal = next;
       goalEl.textContent = mind.goal ? `◈ ${mind.goal}` : "";
+      if (changed || !lastLoggedGoal) {
+        lastLoggedGoal = next;
+        chat(`[Goal] ${next}`, "goal");
+      }
     }
 
     function stageSize() {
@@ -253,6 +339,7 @@
     }
 
     function setMood(mood) {
+      const prev = state.mood;
       sprite.classList.remove("think", "happy", "wave", "curious");
       state.mood = mood || "idle";
       if (["think", "happy", "wave", "curious"].includes(mood)) {
@@ -263,12 +350,15 @@
       else if (mood === "think") speedMul = 0.7;
       else if (mood === "curious") speedMul = 1.05;
       else speedMul = 1;
+      if (mood && mood !== prev) {
+        chat(`* Sprite is ${state.mood}`, "mood");
+      }
     }
 
     function say(text) {
-      // keep last words in mind state only — no on-screen bubble
       if (!text || !String(text).trim()) return;
       state.lastSaid = String(text).trim();
+      chat(state.lastSaid, "chat");
     }
 
     function remember(line) {
@@ -276,7 +366,7 @@
       if (mind.memory.length > 8) mind.memory.shift();
     }
 
-    function setDirection(name) {
+    function setDirection(name, { log = false } = {}) {
       let dir = String(name || "right").toLowerCase().replace(/[_\s-]/g, "");
       if (dir === "none" || dir === "stay") dir = state.move || "right";
       if (dir === "random" || !DIRS[dir]) {
@@ -284,17 +374,22 @@
         dir = keys[Math.floor(Math.random() * keys.length)];
       }
       const d = DIRS[dir];
+      const prev = state.move;
       state.move = dir;
       state.vx = d.vx;
       state.vy = d.vy;
       if (Math.abs(d.vx) > 0.01) setFacing(d.vx > 0 ? 1 : -1);
+      if (log && dir !== prev && dir !== lastLoggedMove) {
+        lastLoggedMove = dir;
+        chat(`→ heading ${dir}`, "move");
+      }
     }
 
     function applyAction(action) {
       if (!action || typeof action !== "object") return;
 
       if (action.goal) setGoalLabel(String(action.goal).slice(0, 80));
-      if (action.move) setDirection(action.move);
+      if (action.move) setDirection(action.move, { log: true });
       if (action.mood) setMood(String(action.mood).toLowerCase());
       if (action.say) say(action.say);
       if (typeof action.speed === "number") {
@@ -379,10 +474,20 @@ Autonomy rules:
         let nx = state.x + state.vx * sp * dt;
         let ny = state.y + state.vy * sp * dt;
 
-        if (nx <= pad) { nx = pad; setDirection(state.vy < 0 ? "upright" : state.vy > 0 ? "downright" : "right"); }
-        else if (nx >= w - pad) { nx = w - pad; setDirection(state.vy < 0 ? "upleft" : state.vy > 0 ? "downleft" : "left"); }
-        if (ny <= pad) { ny = pad; setDirection(state.vx < 0 ? "downleft" : state.vx > 0 ? "downright" : "down"); }
-        else if (ny >= h - pad) { ny = h - pad; setDirection(state.vx < 0 ? "upleft" : state.vx > 0 ? "upright" : "up"); }
+        if (nx <= pad) {
+          nx = pad;
+          setDirection(state.vy < 0 ? "upright" : state.vy > 0 ? "downright" : "right", { log: true });
+        } else if (nx >= w - pad) {
+          nx = w - pad;
+          setDirection(state.vy < 0 ? "upleft" : state.vy > 0 ? "downleft" : "left", { log: true });
+        }
+        if (ny <= pad) {
+          ny = pad;
+          setDirection(state.vx < 0 ? "downleft" : state.vx > 0 ? "downright" : "down", { log: true });
+        } else if (ny >= h - pad) {
+          ny = h - pad;
+          setDirection(state.vx < 0 ? "upleft" : state.vx > 0 ? "upright" : "up", { log: true });
+        }
 
         placeSprite(nx, ny);
       } else {
@@ -420,6 +525,14 @@ Autonomy rules:
         const action = parseAction(content);
         if (running) applyAction(action);
 
+        // periodic system heartbeat in chat (every 5 ticks)
+        if (mind.ticks % 5 === 0) {
+          chat(
+            `[System] tick ${mind.ticks} · ${region()} · energy ${mind.energy.toFixed(2)}`,
+            "sys"
+          );
+        }
+
         setStatus(
           `autonomous · t${mind.ticks} · ${state.move}` +
             (action?.say ? ` · “${String(action.say).slice(0, 28)}”` : ""),
@@ -428,7 +541,8 @@ Autonomy rules:
       } catch (err) {
         console.error(err);
         setStatus(`brain glitch — still running legs`, "warn");
-        setDirection("random");
+        chat("[System] brain glitch — improvising", "err");
+        setDirection("random", { log: true });
         remember(`t${mind.ticks}: glitch, improvised ${state.move}`);
       } finally {
         thinking = false;
@@ -448,31 +562,37 @@ Autonomy rules:
 
       if (!navigator.gpu) {
         setStatus("needs WebGPU (Chrome/Edge) — click to retry", "err");
+        chat("[System] WebGPU missing — use Chrome/Edge", "err");
         return;
       }
 
       progressEl.style.display = "block";
       progressBar.style.width = "0%";
       setStatus("downloading mind…", "warn");
+      chat("[System] downloading mind…", "sys");
       setGoalLabel("booting consciousness");
 
       const initProgressCallback = (report) => {
         const p = Math.round((report.progress || 0) * 100);
         progressBar.style.width = `${p}%`;
         setStatus(`${report.text || "loading"} ${p}%`, "warn");
+        if (p === 0 || p === 25 || p === 50 || p === 75 || p >= 99) {
+          chat(`[System] load ${p}%`, "sys");
+        }
       };
 
       let lastErr = null;
       for (const model of MODELS) {
         try {
+          chat(`[System] trying ${model.split("-").slice(0, 2).join("-")}…`, "sys");
           engine = await CreateMLCEngine(model, { initProgressCallback });
           progressBar.style.width = "100%";
           setTimeout(() => { progressEl.style.display = "none"; }, 400);
           setMood("curious");
           say("i am");
           setGoalLabel("explore every corner of the void");
+          chat("[System] Sprite joined the game", "sys");
           setStatus("autonomous", "ok");
-          // fade status after a bit — pure creature on black
           setTimeout(() => {
             if (statusEl.className === "ok") statusEl.style.opacity = "0.35";
           }, 4000);
@@ -480,6 +600,7 @@ Autonomy rules:
           return;
         } catch (err) {
           console.warn(model, err);
+          chat(`[System] model failed, trying next…`, "err");
           lastErr = err;
           engine = null;
         }
@@ -487,6 +608,7 @@ Autonomy rules:
 
       progressEl.style.display = "none";
       setStatus(`failed — click to retry (${lastErr?.message || "error"})`, "err");
+      chat("[System] failed to load brain — click status to retry", "err");
     }
 
     // body always runs
@@ -497,11 +619,13 @@ Autonomy rules:
     recenter();
     setDirection("right");
     setMood("curious");
+    chat("[System] world loaded", "sys");
+    chat("[System] body online — waiting for mind", "sys");
     requestAnimationFrame(tick);
 
     // pre-brain body autonomy
     setInterval(() => {
-      if (!engine && running) setDirection("random");
+      if (!engine && running) setDirection("random", { log: true });
     }, 2200);
 
     window.addEventListener("resize", () => placeSprite(state.x, state.y));
