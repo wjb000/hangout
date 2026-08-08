@@ -31,9 +31,9 @@
       left: 50%;
       top: 50%;
       transform: translate(-50%, -50%);
-      transition: left 0.35s ease, top 0.35s ease;
       image-rendering: pixelated;
       z-index: 2;
+      will-change: left, top;
     }
 
     #sprite.flip { transform: translate(-50%, -50%) scaleX(-1); }
@@ -80,8 +80,8 @@
     #sprite .leg.l { left: 9px; }
     #sprite .leg.r { right: 9px; }
 
-    #sprite.walk .leg.l { animation: step 0.28s infinite alternate; }
-    #sprite.walk .leg.r { animation: step 0.28s infinite alternate-reverse; }
+    #sprite.walk .leg.l { animation: step 0.18s infinite alternate; }
+    #sprite.walk .leg.r { animation: step 0.18s infinite alternate-reverse; }
 
     @keyframes step {
       from { transform: translateY(0); }
@@ -251,15 +251,15 @@
   </div>
 
   <div id="hud">
-    <div id="status">idle — click Load brain</div>
+    <div id="status">booting loop…</div>
     <div id="progress"><i></i></div>
     <form id="chat">
-      <input id="msg" type="text" placeholder="tell the sprite what to do…" autocomplete="off" disabled />
+      <input id="msg" type="text" placeholder="nudge the sprite…" autocomplete="off" disabled />
       <button type="submit" id="send" class="primary" disabled>go</button>
     </form>
     <div id="actions">
-      <button type="button" id="load" class="primary">Load brain</button>
-      <button type="button" id="wander" disabled>Wander</button>
+      <button type="button" id="load" class="primary" disabled>Loading…</button>
+      <button type="button" id="pause" disabled>Pause</button>
     </div>
   </div>
 
@@ -273,6 +273,14 @@
       "Llama-3.2-1B-Instruct-q4f16_1-MLC",
     ];
 
+    const SPEED = 95; // px / second — always moving
+    const DIRS = {
+      left:  { vx: -1, vy:  0 },
+      right: { vx:  1, vy:  0 },
+      up:    { vx:  0, vy: -1 },
+      down:  { vx:  0, vy:  1 },
+    };
+
     const stage = document.getElementById("stage");
     const sprite = document.getElementById("sprite");
     const bubble = document.getElementById("bubble");
@@ -282,22 +290,26 @@
     const msgInput = document.getElementById("msg");
     const sendBtn = document.getElementById("send");
     const loadBtn = document.getElementById("load");
-    const wanderBtn = document.getElementById("wander");
+    const pauseBtn = document.getElementById("pause");
     const form = document.getElementById("chat");
 
     let engine = null;
-    let busy = false;
-    let wandering = false;
-    let wanderTimer = null;
-    let facing = 1; // 1 right, -1 left
+    let thinking = false;
+    let running = true;       // continuous move + brain loop
+    let facing = 1;
     let bubbleHide = null;
+    let lastFrame = 0;
+    let pendingNudge = null;  // optional user instruction for next think
+    let loopGen = 0;          // invalidate brain loop on pause/resume
 
-    // sprite logical position (px from stage top-left of sprite center)
     const state = {
       x: 0,
       y: 0,
+      vx: 1,
+      vy: 0,
       mood: "idle",
       lastSaid: "",
+      move: "right",
     };
 
     function setStatus(text, kind = "") {
@@ -309,29 +321,21 @@
       return { w: stage.clientWidth, h: stage.clientHeight };
     }
 
-    function placeSprite(x, y, animate = true) {
+    function placeSprite(x, y) {
       const { w, h } = stageSize();
       const pad = 28;
       x = Math.max(pad, Math.min(w - pad, x));
       y = Math.max(pad, Math.min(h - pad, y));
       state.x = x;
       state.y = y;
-      if (!animate) sprite.style.transition = "none";
       sprite.style.left = `${x}px`;
       sprite.style.top = `${y}px`;
-      if (!animate) {
-        // force reflow then restore
-        void sprite.offsetWidth;
-        sprite.style.transition = "";
-      }
       positionBubble();
     }
 
     function positionBubble() {
-      const sx = state.x;
-      const sy = state.y;
-      bubble.style.left = `${sx}px`;
-      bubble.style.top = `${sy - 56}px`;
+      bubble.style.left = `${state.x}px`;
+      bubble.style.top = `${state.y - 56}px`;
       bubble.style.transform = "translateX(-50%)";
     }
 
@@ -341,7 +345,7 @@
     }
 
     function setMood(mood) {
-      sprite.classList.remove("think", "happy", "wave", "walk");
+      sprite.classList.remove("think", "happy", "wave");
       state.mood = mood || "idle";
       if (mood === "think" || mood === "happy" || mood === "wave") {
         sprite.classList.add(mood);
@@ -355,41 +359,33 @@
       bubble.classList.add("show");
       positionBubble();
       clearTimeout(bubbleHide);
-      bubbleHide = setTimeout(() => bubble.classList.remove("show"), 4500);
+      bubbleHide = setTimeout(() => bubble.classList.remove("show"), 3500);
     }
 
-    function moveBy(dx, dy) {
-      if (dx !== 0) setFacing(dx > 0 ? 1 : -1);
-      sprite.classList.add("walk");
-      placeSprite(state.x + dx, state.y + dy, true);
-      setTimeout(() => sprite.classList.remove("walk"), 380);
+    function setDirection(name) {
+      let dir = String(name || "right").toLowerCase();
+      if (dir === "none") dir = state.move || "right";
+      if (dir === "random" || !DIRS[dir]) {
+        const keys = Object.keys(DIRS);
+        dir = keys[Math.floor(Math.random() * keys.length)];
+      }
+      const d = DIRS[dir];
+      state.move = dir;
+      state.vx = d.vx;
+      state.vy = d.vy;
+      if (d.vx !== 0) setFacing(d.vx > 0 ? 1 : -1);
     }
 
     function applyAction(action) {
       if (!action || typeof action !== "object") return;
-
-      const step = Math.max(1, Math.min(8, Number(action.steps) || 2));
-      const dist = 36 * step;
-      const dir = String(action.move || "none").toLowerCase();
-
-      if (dir === "left") moveBy(-dist, 0);
-      else if (dir === "right") moveBy(dist, 0);
-      else if (dir === "up") moveBy(0, -dist);
-      else if (dir === "down") moveBy(0, dist);
-      else if (dir === "random") {
-        const picks = ["left", "right", "up", "down"];
-        const p = picks[Math.floor(Math.random() * picks.length)];
-        applyAction({ ...action, move: p });
-        return;
-      }
-
+      const dir = String(action.move || "random").toLowerCase();
+      setDirection(dir);
       if (action.mood) setMood(String(action.mood).toLowerCase());
       if (action.say) say(String(action.say));
     }
 
     function parseAction(raw) {
       if (!raw) return null;
-      // strip fences / junk
       let t = raw.trim();
       const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/i);
       if (fence) t = fence[1].trim();
@@ -398,80 +394,147 @@
       try {
         return JSON.parse(t);
       } catch {
-        // fallback: keyword moves
         const lower = raw.toLowerCase();
         const move =
           lower.includes("left") ? "left" :
           lower.includes("right") ? "right" :
           lower.includes("up") ? "up" :
-          lower.includes("down") ? "down" : "none";
-        return { move, steps: 2, say: raw.slice(0, 80), mood: "think" };
+          lower.includes("down") ? "down" : "random";
+        return { move, say: raw.slice(0, 80), mood: "happy" };
       }
     }
 
     function systemPrompt() {
       const { w, h } = stageSize();
-      return `You control a tiny sprite on a black webpage stage.
-Stage size: ${w}x${h}px. Sprite is at x=${Math.round(state.x)}, y=${Math.round(state.y)} (center).
-Facing: ${facing > 0 ? "right" : "left"}. Last said: ${JSON.stringify(state.lastSaid || "")}.
+      return `You pilot a tiny sprite that NEVER stops running on a black stage.
+Stage: ${w}x${h}px. Pos: (${Math.round(state.x)}, ${Math.round(state.y)}).
+Current direction: ${state.move}. Facing: ${facing > 0 ? "right" : "left"}.
+Last said: ${JSON.stringify(state.lastSaid || "")}.
 
-Reply with ONLY one JSON object (no markdown, no extra text):
-{"move":"left|right|up|down|none|random","steps":1-5,"say":"short speech bubble max 12 words","mood":"idle|think|happy|wave"}
+Reply with ONLY one JSON object (no markdown):
+{"move":"left|right|up|down|random","say":"max 10 words","mood":"idle|think|happy|wave"}
 
 Rules:
-- stay playful and brief
-- steps is how far to walk (1 small, 5 big)
-- if user gives an order, follow it
-- if wandering, pick a sensible move and a tiny thought`;
+- ALWAYS pick a real move (never stay still)
+- bounce vibes near edges; explore the open space
+- short playful speech only sometimes (every other decision can be "")
+- if user nudged you, honor that`;
     }
 
-    async function think(userText) {
-      if (!engine || busy) return;
-      busy = true;
-      sendBtn.disabled = true;
+    // continuous physics / walk loop — independent of LLM
+    function tick(now) {
+      if (!lastFrame) lastFrame = now;
+      const dt = Math.min(0.05, (now - lastFrame) / 1000);
+      lastFrame = now;
+
+      if (running) {
+        sprite.classList.add("walk");
+        const { w, h } = stageSize();
+        const pad = 28;
+        let nx = state.x + state.vx * SPEED * dt;
+        let ny = state.y + state.vy * SPEED * dt;
+
+        // bounce off edges, keep moving
+        if (nx <= pad) { nx = pad; setDirection("right"); }
+        else if (nx >= w - pad) { nx = w - pad; setDirection("left"); }
+        if (ny <= pad) { ny = pad; setDirection("down"); }
+        else if (ny >= h - pad) { ny = h - pad; setDirection("up"); }
+
+        placeSprite(nx, ny);
+      } else {
+        sprite.classList.remove("walk");
+      }
+
+      requestAnimationFrame(tick);
+    }
+
+    async function thinkOnce(userText) {
+      if (!engine || thinking) return;
+      thinking = true;
       setMood("think");
-      setStatus("thinking…", "warn");
 
       try {
         const messages = [
           { role: "system", content: systemPrompt() },
-          { role: "user", content: userText || "Wander a bit. Pick a move and say something tiny." },
+          {
+            role: "user",
+            content: userText ||
+              "Keep the run going. Choose next direction. Optional tiny line.",
+          },
         ];
 
         const reply = await engine.chat.completions.create({
           messages,
-          temperature: 0.8,
-          max_tokens: 120,
+          temperature: 0.95,
+          max_tokens: 80,
         });
 
         const content = reply?.choices?.[0]?.message?.content || "";
         const action = parseAction(content);
-        applyAction(action);
-        setStatus(`ok · ${action?.move || "none"}${action?.say ? " · “" + action.say.slice(0, 40) + "”" : ""}`, "ok");
+        if (running) applyAction(action);
+        setStatus(
+          `loop · ${state.move}${action?.say ? " · “" + String(action.say).slice(0, 36) + "”" : ""}`,
+          "ok"
+        );
       } catch (err) {
         console.error(err);
         setStatus(`error: ${err.message || err}`, "err");
-        setMood("idle");
+        // keep running physically even if brain hiccups
+        setDirection("random");
       } finally {
-        busy = false;
+        thinking = false;
         sendBtn.disabled = !engine;
         msgInput.disabled = !engine;
       }
     }
 
+    // brain loop: as soon as one decision finishes, start the next
+    async function brainLoop(gen) {
+      while (running && engine && gen === loopGen) {
+        const nudge = pendingNudge;
+        pendingNudge = null;
+        await thinkOnce(nudge);
+        // tiny breather so the run feels continuous without hammering GPU
+        await new Promise((r) => setTimeout(r, 400));
+      }
+    }
+
+    function startLoops() {
+      running = true;
+      loopGen += 1;
+      const gen = loopGen;
+      pauseBtn.disabled = false;
+      pauseBtn.textContent = "Pause";
+      setDirection(state.move || "right");
+      sprite.classList.add("walk");
+      setStatus("loop running — brain + legs", "ok");
+      brainLoop(gen);
+    }
+
+    function stopLoops() {
+      running = false;
+      loopGen += 1;
+      thinking = false;
+      sprite.classList.remove("walk");
+      pauseBtn.textContent = "Resume";
+      setStatus("paused", "warn");
+    }
+
     async function loadBrain() {
-      if (engine || busy) return;
+      if (engine) return;
 
       if (!navigator.gpu) {
         setStatus("WebGPU missing — use Chrome/Edge on desktop", "err");
+        loadBtn.disabled = false;
+        loadBtn.textContent = "Retry";
         return;
       }
 
-      busy = true;
       loadBtn.disabled = true;
+      loadBtn.textContent = "Loading…";
       progressEl.style.display = "block";
       progressBar.style.width = "0%";
-      setStatus("loading in-browser model (first time downloads weights)…", "warn");
+      setStatus("loading in-browser model…", "warn");
 
       const initProgressCallback = (report) => {
         const p = Math.round((report.progress || 0) * 100);
@@ -484,16 +547,14 @@ Rules:
         try {
           setStatus(`trying ${model}…`, "warn");
           engine = await CreateMLCEngine(model, { initProgressCallback });
-          setStatus(`brain online · ${model}`, "ok");
           progressBar.style.width = "100%";
-          setTimeout(() => { progressEl.style.display = "none"; }, 600);
+          setTimeout(() => { progressEl.style.display = "none"; }, 500);
           msgInput.disabled = false;
           sendBtn.disabled = false;
-          wanderBtn.disabled = false;
-          loadBtn.textContent = "Loaded";
-          say("yo");
-          setMood("wave");
-          busy = false;
+          loadBtn.textContent = "Online";
+          say("lets go");
+          setMood("happy");
+          startLoops();
           return;
         } catch (err) {
           console.warn("model failed", model, err);
@@ -502,54 +563,54 @@ Rules:
         }
       }
 
-      busy = false;
       loadBtn.disabled = false;
+      loadBtn.textContent = "Retry";
       progressEl.style.display = "none";
-      setStatus(`failed to load model: ${lastErr?.message || lastErr}`, "err");
+      setStatus(`failed: ${lastErr?.message || lastErr}`, "err");
     }
 
-    function setWander(on) {
-      wandering = on;
-      wanderBtn.textContent = on ? "Stop" : "Wander";
-      clearInterval(wanderTimer);
-      wanderTimer = null;
-      if (on) {
-        setStatus("wandering — brain decides moves", "ok");
-        think("You are free. Wander the void a little.");
-        wanderTimer = setInterval(() => {
-          if (!busy && engine) think("Keep wandering. New move.");
-        }, 7000);
-      } else {
-        setStatus(engine ? "brain online · waiting" : "idle", engine ? "ok" : "");
-      }
-    }
-
-    // init center
     function recenter() {
       const { w, h } = stageSize();
-      placeSprite(w / 2, h / 2, false);
+      placeSprite(w / 2, h / 2);
     }
     recenter();
-    window.addEventListener("resize", () => placeSprite(state.x, state.y, false));
+    setDirection("right");
+    // legs start moving immediately (even before brain loads)
+    requestAnimationFrame(tick);
+    // physical wander before/during model load
+    setInterval(() => {
+      if (!engine && running) setDirection("random");
+    }, 2500);
+
+    window.addEventListener("resize", () => placeSprite(state.x, state.y));
 
     loadBtn.addEventListener("click", () => loadBrain());
-    wanderBtn.addEventListener("click", () => setWander(!wandering));
+    pauseBtn.addEventListener("click", () => {
+      if (!engine) return;
+      if (running) stopLoops();
+      else startLoops();
+    });
     form.addEventListener("submit", (e) => {
       e.preventDefault();
       const t = msgInput.value.trim();
       if (!t || !engine) return;
       msgInput.value = "";
-      think(t);
+      pendingNudge = t;
+      if (!running) startLoops();
+      setStatus("nudge queued…", "warn");
     });
 
-    // click stage: ask brain to walk toward click
     stage.addEventListener("click", (e) => {
-      if (!engine || busy) return;
+      if (!engine) return;
       const rect = stage.getBoundingClientRect();
       const tx = e.clientX - rect.left;
       const ty = e.clientY - rect.top;
-      think(`Walk toward about x=${Math.round(tx)}, y=${Math.round(ty)} on the stage. Comment briefly.`);
+      pendingNudge = `Run toward x=${Math.round(tx)}, y=${Math.round(ty)}.`;
+      if (!running) startLoops();
     });
+
+    // auto-start
+    loadBrain();
   </script>
 </body>
 </html>
