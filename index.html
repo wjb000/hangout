@@ -3,103 +3,76 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
-  <title>Little Land</title>
+  <title>Hangout</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <canvas id="world" aria-label="little land"></canvas>
+  <canvas id="world" aria-label="world"></canvas>
 
-  <!-- Top: minimal brand + clock -->
-  <header id="topbar">
-    <div class="brand">
-      <span class="crest">⌂</span>
-      <div>
-        <div class="title">Little Land</div>
-        <div class="sub" id="day-label">dusk settles</div>
-      </div>
-    </div>
-    <div id="clock-ring" title="day cycle">
-      <svg viewBox="0 0 36 36" class="ring">
-        <circle cx="18" cy="18" r="15" class="ring-bg" />
-        <circle cx="18" cy="18" r="15" class="ring-fg" id="day-ring" />
-      </svg>
-      <span id="clock-text">—</span>
-    </div>
-  </header>
-
-  <!-- Floating topic when they talk -->
-  <div id="topic-pill" class="hidden">
-    <span class="pulse"></span>
-    <span id="topic-text">…</span>
+  <!-- Minimal top-left identity -->
+  <div id="ui-corner">
+    <span id="ui-title">hangout</span>
+    <span id="day-label">—</span>
   </div>
 
-  <!-- Bottom dock: dwellers + controls -->
-  <footer id="dock">
-    <div class="dwellers">
-      <button type="button" class="dweller bit" id="focus-bit" data-id="bit">
-        <span class="avatar bit-av"></span>
-        <span class="meta">
-          <strong>Bit</strong>
-          <em id="bit-act">roaming</em>
+  <!-- Center topic when chatting -->
+  <div id="topic-pill" class="hidden" aria-live="polite">
+    <span id="topic-text"></span>
+  </div>
+
+  <!-- Speech log -->
+  <div id="chatlog" aria-label="speech"></div>
+
+  <!-- Bottom strip: people + essential tools only -->
+  <nav id="bar">
+    <div class="people">
+      <button type="button" class="p bit" id="focus-bit" aria-label="Bit">
+        <span class="orb"></span>
+        <span class="txt">
+          <b>Bit</b>
+          <small id="bit-act">…</small>
         </span>
-        <span class="bars">
-          <i id="bit-energy" class="en"></i>
-          <i id="bit-social" class="so"></i>
-        </span>
+        <span class="track"><i id="bit-energy"></i></span>
       </button>
-      <button type="button" class="dweller nox" id="focus-nox" data-id="nox">
-        <span class="avatar nox-av"></span>
-        <span class="meta">
-          <strong>Nox</strong>
-          <em id="nox-act">roaming</em>
+      <button type="button" class="p nox" id="focus-nox" aria-label="Nox">
+        <span class="orb"></span>
+        <span class="txt">
+          <b>Nox</b>
+          <small id="nox-act">…</small>
         </span>
-        <span class="bars">
-          <i id="nox-energy" class="en"></i>
-          <i id="nox-social" class="so"></i>
-        </span>
+        <span class="track"><i id="nox-energy"></i></span>
       </button>
-      <div class="rel" id="rel-bar">♥ ···</div>
     </div>
 
-    <div class="controls">
-      <div class="speed" title="sim speed">
-        <button type="button" data-speed="0" id="spd-0">❚❚</button>
-        <button type="button" data-speed="0.5" id="spd-05">½</button>
-        <button type="button" data-speed="1" id="spd-1" class="on">1×</button>
-        <button type="button" data-speed="2" id="spd-2">2×</button>
-      </div>
-      <button type="button" class="tool" id="btn-call" title="Call (Q)">◎</button>
-      <button type="button" class="tool" id="btn-beacon" title="Beacon (E)">✦</button>
-      <button type="button" class="tool" id="btn-view" title="View (C)">◉</button>
-      <button type="button" class="tool" id="btn-brain" title="Brain (B)">◈</button>
+    <div class="tools">
+      <button type="button" class="t" data-speed="0" id="spd-0" title="Pause">∥</button>
+      <button type="button" class="t on" data-speed="1" id="spd-1" title="1x">▷</button>
+      <button type="button" class="t" data-speed="2" id="spd-2" title="2x">▷▷</button>
+      <span class="sep"></span>
+      <button type="button" class="t" id="btn-view" title="Camera">◎</button>
+      <button type="button" class="t" id="btn-call" title="Call">◉</button>
+      <button type="button" class="t" id="btn-brain" title="AI mode">✦</button>
     </div>
-  </footer>
+  </nav>
 
-  <!-- Chat as soft log over the land -->
-  <div id="chatlog" aria-label="voices"></div>
-  <div id="status" class="hidden">…</div>
-
+  <!-- First visit -->
   <div id="onboard" class="hidden">
-    <div class="onboard-card">
-      <div class="crest-lg">⌂</div>
-      <h2>Little Land</h2>
-      <p>A small tavern-world. Tiny people live their day while you watch from above.</p>
-      <ul>
-        <li>Morning kitchen · afternoon roam · evening hearth · night rest</li>
-        <li>Click a dweller to glance at them</li>
-        <li>Speed the day with ½ / 1× / 2×</li>
-      </ul>
-      <button type="button" id="enter-btn">Watch the land</button>
+    <div class="sheet">
+      <p class="kicker">a little place</p>
+      <h1>Hangout</h1>
+      <p class="blurb">Two small AIs live here. Watch them. That’s it.</p>
+      <button type="button" id="enter-btn">Continue</button>
     </div>
   </div>
 
   <div id="toasts"></div>
+  <div id="status" class="sr-only" aria-live="polite"></div>
+  <div id="rel-bar" class="sr-only"></div>
   <div id="debug" class="hidden"><pre id="dbg-body"></pre></div>
   <div id="progress"><i></i></div>
 
-  <!-- Hidden canvases for VLA / map (not primary UI) -->
-  <canvas id="vision" width="256" height="160" class="offscreen"></canvas>
-  <canvas id="minimap" width="1" height="1" class="offscreen"></canvas>
+  <canvas id="vision" width="256" height="160" class="ghost"></canvas>
+  <canvas id="minimap" width="1" height="1" class="ghost"></canvas>
 
   <script type="module" src="main.js"></script>
 </body>

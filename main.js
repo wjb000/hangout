@@ -75,12 +75,9 @@ const progressBar = progressEl?.querySelector("i");
 const debugEl = document.getElementById("debug");
 const dbgBody = document.getElementById("dbg-body");
 const toastsEl = document.getElementById("toasts");
-const brainModeEl = document.getElementById("btn-brain");
 const dayLabel = document.getElementById("day-label");
 const topicPill = document.getElementById("topic-pill");
 const topicText = document.getElementById("topic-text");
-const dayRing = document.getElementById("day-ring");
-const clockText = document.getElementById("clock-text");
 
 const wctx = worldCanvas.getContext("2d");
 const mctx = minimapCanvas?.getContext("2d");
@@ -262,11 +259,7 @@ function clockLabel(p) {
 }
 function updateCards() {
   const set = (id, a) => {
-    const e = document.getElementById(`${id}-energy`);
-    const s = document.getElementById(`${id}-social`);
     const act = document.getElementById(`${id}-act`);
-    if (e) e.style.width = `${Math.round(a.energy * 100)}%`;
-    if (s) s.style.width = `${Math.round(a.social * 100)}%`;
     if (act) {
       const labels = {
         roam: "roaming", chat: "talking", sit: "resting",
@@ -274,6 +267,10 @@ function updateCards() {
       };
       act.textContent = labels[a.activity] || a.activity || a.move || "…";
     }
+    // subtle energy via orb opacity
+    const btn = document.getElementById(`focus-${id}`);
+    const orb = btn?.querySelector(".orb");
+    if (orb) orb.style.opacity = String(0.45 + a.energy * 0.55);
   };
   set("bit", bit);
   set("nox", nox);
@@ -286,20 +283,8 @@ function updateCards() {
   }
 
   if (dayLabel) dayLabel.textContent = dayName(dayPhase);
-  if (clockText) clockText.textContent = clockLabel(dayPhase);
-  if (dayRing) {
-    // circumference ~ 94
-    const offset = 94 * (1 - dayPhase);
-    dayRing.style.strokeDashoffset = String(offset);
-  }
-  if (relBar) {
-    const v = relations.bit_nox;
-    const heart = v > 0.4 ? "♥♥" : v > 0.15 ? "♥" : v < -0.1 ? "…" : "·";
-    relBar.textContent = `${heart} ${v.toFixed(2)}`;
-  }
 
-  // speed buttons
-  document.querySelectorAll(".speed button").forEach((btn) => {
+  document.querySelectorAll(".tools .t[data-speed]").forEach((btn) => {
     btn.classList.toggle("on", Number(btn.dataset.speed) === simSpeed);
   });
 }
@@ -1163,8 +1148,9 @@ window.addEventListener("keydown", (e) => {
   if (k === "2") setSpeed(2);
 });
 
+// double-tap title cycles nothing — keep simple
+
 document.getElementById("btn-call")?.addEventListener("click", doCall);
-document.getElementById("btn-beacon")?.addEventListener("click", doBeacon);
 document.getElementById("btn-view")?.addEventListener("click", () => {
   spectator = !spectator;
   focusId = null;
@@ -1173,8 +1159,13 @@ document.getElementById("btn-view")?.addEventListener("click", () => {
 document.getElementById("btn-brain")?.addEventListener("click", cycleBrain);
 document.getElementById("focus-bit")?.addEventListener("click", () => glanceAt("bit"));
 document.getElementById("focus-nox")?.addEventListener("click", () => glanceAt("nox"));
-document.querySelectorAll(".speed button").forEach((btn) => {
+document.querySelectorAll(".t[data-speed]").forEach((btn) => {
   btn.addEventListener("click", () => setSpeed(Number(btn.dataset.speed)));
+});
+// long-press call also acts as beacon if shift
+document.getElementById("btn-call")?.addEventListener("contextmenu", (e) => {
+  e.preventDefault();
+  doBeacon();
 });
 
 // Start
