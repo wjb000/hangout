@@ -7,6 +7,7 @@ html, body {
   color: #888;
   font-family: "Courier New", ui-monospace, Menlo, monospace;
   user-select: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 #world {
@@ -16,12 +17,13 @@ html, body {
   height: 100%;
   display: block;
   z-index: 1;
+  touch-action: none;
 }
 
 #vision {
   position: fixed;
   right: 12px;
-  top: 52px;
+  top: 56px;
   width: 168px;
   height: 105px;
   border: 1px solid #2a2a2a;
@@ -35,7 +37,7 @@ html, body {
 #vision-meta {
   position: fixed;
   right: 12px;
-  top: 160px;
+  top: 164px;
   width: 168px;
   text-align: center;
   font-size: 10px;
@@ -47,7 +49,7 @@ html, body {
 #minimap {
   position: fixed;
   right: 12px;
-  top: 182px;
+  top: 186px;
   width: 160px;
   height: 100px;
   border: 1px solid #2a2a2a;
@@ -60,26 +62,39 @@ html, body {
 #hud-top {
   position: fixed;
   left: 12px;
-  right: 200px;
-  top: 10px;
+  right: 190px;
+  top: 8px;
   z-index: 40;
   pointer-events: none;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 5px;
 }
 
 #scenario-bar {
   display: flex;
-  gap: 16px;
+  flex-wrap: wrap;
+  gap: 10px 14px;
   align-items: baseline;
-  font-size: 13px;
+  font-size: 12px;
   color: #8a8;
+  pointer-events: auto;
 }
 
 #scenario-title { color: #9c9; font-weight: bold; }
+#phase-label { color: #8af; }
 #scenario-timer { color: #ca5; font-variant-numeric: tabular-nums; }
 #scenario-timer.urgent { color: #f55; }
+
+#brain-mode {
+  color: #6a6;
+  border: 1px solid #2a2a2a;
+  padding: 1px 6px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 10px;
+}
+#brain-mode:hover { color: #aca; border-color: #444; }
 
 #goals {
   display: flex;
@@ -93,14 +108,10 @@ html, body {
   background: rgba(10, 10, 10, 0.75);
   border-radius: 4px;
   font-size: 11px;
-  color: #666;
+  color: #555;
 }
-
-.goal-chip.done {
-  color: #5c5;
-  border-color: #253525;
-}
-
+.goal-chip.active { color: #cc8; border-color: #3a3a20; }
+.goal-chip.done { color: #5c5; border-color: #253525; }
 .goal-chip .bar {
   display: block;
   height: 2px;
@@ -109,7 +120,6 @@ html, body {
   border-radius: 1px;
   overflow: hidden;
 }
-
 .goal-chip .bar > i {
   display: block;
   height: 100%;
@@ -118,10 +128,7 @@ html, body {
   transition: width 0.3s;
 }
 
-#rel-bar {
-  font-size: 10px;
-  color: #444;
-}
+#rel-bar { font-size: 10px; color: #444; }
 
 #status {
   font-size: 11px;
@@ -130,7 +137,6 @@ html, body {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-
 #status.warn { color: #886622; }
 #status.err {
   color: #a44;
@@ -138,9 +144,25 @@ html, body {
   cursor: pointer;
 }
 
+#inv-bar {
+  position: fixed;
+  left: 12px;
+  bottom: 52px;
+  z-index: 40;
+  font-size: 11px;
+  color: #4a4;
+  background: rgba(0, 0, 0, 0.55);
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: 1px solid #1a2a1a;
+  pointer-events: none;
+}
+#inv-bar b { color: #8c8; }
+.inv-hint { display: block; color: #333; font-size: 9px; margin-top: 2px; }
+
 #toasts {
   position: fixed;
-  top: 120px;
+  top: 130px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 55;
@@ -150,7 +172,6 @@ html, body {
   pointer-events: none;
   align-items: center;
 }
-
 .toast {
   padding: 8px 14px;
   background: rgba(0, 0, 0, 0.85);
@@ -160,10 +181,9 @@ html, body {
   border-radius: 4px;
   opacity: 1;
   transition: opacity 0.6s;
-  max-width: 80vw;
+  max-width: 85vw;
   text-align: center;
 }
-
 .toast.fade { opacity: 0; }
 .toast.good { color: #8c8; border-color: #2a4a2a; }
 .toast.bad { color: #c88; border-color: #4a2a2a; }
@@ -171,9 +191,9 @@ html, body {
 #chatlog {
   position: fixed;
   left: 10px;
-  bottom: 28px;
-  width: min(460px, calc(100vw - 20px));
-  max-height: min(260px, 38vh);
+  bottom: 88px;
+  width: min(420px, calc(100vw - 20px));
+  max-height: min(220px, 32vh);
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
@@ -182,19 +202,16 @@ html, body {
   pointer-events: none;
   overflow: hidden;
 }
-
 #chatlog .line {
   padding: 3px 7px;
   background: rgba(0, 0, 0, 0.55);
   color: #fff;
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1.35;
   text-shadow: 1px 1px 0 #000;
   word-break: break-word;
-  opacity: 1;
-  transition: opacity 1.2s ease;
+  transition: opacity 1.2s;
 }
-
 #chatlog .line.fade { opacity: 0; }
 #chatlog .line .bit { color: #55ffff; }
 #chatlog .line .nox { color: #ff5555; }
@@ -204,9 +221,9 @@ html, body {
 #debug {
   position: fixed;
   left: 10px;
-  top: 100px;
+  top: 110px;
   width: min(400px, 48vw);
-  max-height: 42vh;
+  max-height: 38vh;
   overflow: auto;
   background: rgba(0, 0, 0, 0.88);
   border: 1px solid #2a2a2a;
@@ -217,10 +234,9 @@ html, body {
   color: #8a8;
   pointer-events: none;
 }
-
 #debug.hidden { display: none; }
 #debug .dbg-title { color: #666; margin-bottom: 6px; }
-#debug kbd, #hint kbd {
+kbd {
   border: 1px solid #333;
   padding: 0 4px;
   border-radius: 3px;
@@ -230,14 +246,11 @@ html, body {
 
 #progress {
   position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  left: 0; right: 0; bottom: 0;
   height: 2px;
   display: none;
   z-index: 60;
 }
-
 #progress > i {
   display: block;
   height: 100%;
@@ -254,8 +267,32 @@ html, body {
   color: #222;
   z-index: 40;
   pointer-events: none;
-  max-width: 50vw;
+  max-width: 55vw;
   text-align: right;
+}
+
+#mobile-bar {
+  display: none;
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 45;
+  gap: 6px;
+  padding: 8px;
+  background: rgba(0, 0, 0, 0.85);
+  border-top: 1px solid #1a1a1a;
+  justify-content: space-around;
+}
+#mobile-bar button {
+  flex: 1;
+  background: #141414;
+  border: 1px solid #2a2a2a;
+  color: #9a9;
+  padding: 10px 6px;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 12px;
 }
 
 #win-modal {
@@ -267,37 +304,57 @@ html, body {
   align-items: center;
   justify-content: center;
 }
-
 #win-modal.hidden { display: none; }
-
 .win-card {
   background: #0a0a0a;
   border: 1px solid #2a3a2a;
   padding: 28px 32px;
   border-radius: 10px;
   text-align: center;
-  max-width: 90vw;
-  pointer-events: auto;
+  max-width: 92vw;
 }
-
-.win-card h1 {
-  color: #8c8;
-  font-size: 22px;
-  margin-bottom: 10px;
-}
-
+.win-card h1 { color: #8c8; font-size: 22px; margin-bottom: 10px; }
 .win-card p { color: #888; font-size: 13px; margin-bottom: 8px; }
 .win-card .win-sub { color: #555; font-size: 11px; }
-
+.win-actions { display: flex; gap: 10px; justify-content: center; margin-top: 14px; flex-wrap: wrap; }
 .win-card button {
-  margin-top: 14px;
   background: #132013;
   border: 1px solid #2a4a2a;
   color: #9c9;
-  padding: 8px 18px;
+  padding: 8px 16px;
   border-radius: 6px;
   font: inherit;
   cursor: pointer;
 }
-
 .win-card button:hover { border-color: #4a6a4a; color: #cfc; }
+
+/* Mobile */
+@media (max-width: 720px) {
+  #vision {
+    width: 120px;
+    height: 75px;
+    top: auto;
+    bottom: 120px;
+    right: 8px;
+  }
+  #vision-meta {
+    top: auto;
+    bottom: 100px;
+    right: 8px;
+    width: 120px;
+    font-size: 9px;
+  }
+  #minimap {
+    width: 100px;
+    height: 64px;
+    top: auto;
+    bottom: 28px;
+    right: 8px;
+  }
+  #hud-top { right: 8px; left: 8px; }
+  #hint { display: none; }
+  #mobile-bar { display: flex; }
+  #chatlog { bottom: 100px; max-height: 22vh; }
+  #inv-bar { bottom: 100px; font-size: 10px; }
+  #scenario-bar { font-size: 11px; gap: 8px; }
+}

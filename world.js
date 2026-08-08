@@ -221,18 +221,27 @@ export function nearestFreePickup(world, x, y, maxD = 36) {
   return best;
 }
 
-/** Map screen canvas CSS size → world + letterbox transform */
-export function viewTransform(canvas) {
+/**
+ * Map canvas → world. Optional camera: { x, y, zoom } focuses on a point.
+ */
+export function viewTransform(canvas, camera = null) {
   const cw = canvas.clientWidth;
   const ch = canvas.clientHeight;
-  const scale = Math.min(cw / WORLD_W, ch / WORLD_H);
-  const ox = (cw - WORLD_W * scale) / 2;
-  const oy = (ch - WORLD_H * scale) / 2;
+  let scale = Math.min(cw / WORLD_W, ch / WORLD_H);
+  let ox = (cw - WORLD_W * scale) / 2;
+  let oy = (ch - WORLD_H * scale) / 2;
+
+  if (camera && camera.zoom > 1) {
+    scale *= camera.zoom;
+    ox = cw / 2 - camera.x * scale;
+    oy = ch / 2 - camera.y * scale;
+  }
+
   return { scale, ox, oy, cw, ch };
 }
 
-export function screenToWorld(canvas, sx, sy) {
-  const { scale, ox, oy } = viewTransform(canvas);
+export function screenToWorld(canvas, sx, sy, camera = null) {
+  const { scale, ox, oy } = viewTransform(canvas, camera);
   return {
     x: (sx - ox) / scale,
     y: (sy - oy) / scale,
@@ -240,7 +249,8 @@ export function screenToWorld(canvas, sx, sy) {
 }
 
 export function drawWorld(ctx, canvas, world, entities, opts = {}) {
-  const { scale, ox, oy, cw, ch } = viewTransform(canvas);
+  const camera = opts.camera || null;
+  const { scale, ox, oy, cw, ch } = viewTransform(canvas, camera);
   const dpr = window.devicePixelRatio || 1;
   if (canvas.width !== Math.floor(cw * dpr) || canvas.height !== Math.floor(ch * dpr)) {
     canvas.width = Math.floor(cw * dpr);
@@ -305,22 +315,62 @@ export function drawWorld(ctx, canvas, world, entities, opts = {}) {
     ctx.textAlign = "left";
   }
 
-  // pickups
+  // pickups (+ goal glow)
   for (const p of world.pickups) {
     if (p.heldBy) continue;
+    const isTarget = opts.targetOrbIds && opts.targetOrbIds.has(p.id);
+    if (isTarget) {
+      const pulse = 10 + Math.sin((world.time || 0) * 6) * 5;
+      ctx.strokeStyle = "rgba(255,255,100,0.7)";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 16 + pulse * 0.3, 0, Math.PI * 2);
+      ctx.stroke();
+    }
     ctx.beginPath();
     ctx.fillStyle = p.color;
+    ctx.shadowColor = p.color;
+    ctx.shadowBlur = isTarget ? 18 : 8;
     ctx.moveTo(p.x, p.y - 8);
     ctx.lineTo(p.x + 7, p.y);
     ctx.lineTo(p.x, p.y + 8);
     ctx.lineTo(p.x - 7, p.y);
     ctx.closePath();
     ctx.fill();
+    ctx.shadowBlur = 0;
     ctx.fillStyle = "#888";
     ctx.font = "10px monospace";
     ctx.textAlign = "center";
     ctx.fillText(p.label, p.x, p.y + 18);
     ctx.textAlign = "left";
+  }
+
+  // target lines agent → goal
+  if (opts.targetLines) {
+    for (const line of opts.targetLines) {
+      ctx.strokeStyle = line.color || "rgba(255,255,100,0.35)";
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([6, 6]);
+      ctx.beginPath();
+      ctx.moveTo(line.x0, line.y0);
+      ctx.lineTo(line.x1, line.y1);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  }
+
+  // human path
+  if (opts.path && opts.path.length > 1) {
+    ctx.strokeStyle = "rgba(80,255,80,0.5)";
+    ctx.lineWidth = 2;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(opts.path[0].x, opts.path[0].y);
+    for (let i = 1; i < opts.path.length; i++) {
+      ctx.lineTo(opts.path[i].x, opts.path[i].y);
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
   }
 
   // beacon
