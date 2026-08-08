@@ -243,13 +243,24 @@ export function drawWorld(ctx, canvas, world, entities, opts = {}) {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, cw, ch);
 
-  const bg = ctx.createRadialGradient(cw * 0.5, ch * 0.45, 40, cw * 0.5, ch * 0.5, Math.max(cw, ch) * 0.75);
-  bg.addColorStop(0, "#0c1220");
-  bg.addColorStop(0.5, "#060a12");
+  // day phase 0..1 → night/dusk/day tint
+  const day = opts.dayPhase != null ? opts.dayPhase : 0.35;
+  const night = Math.sin(day * Math.PI * 2) * 0.5 + 0.5; // 0 day-ish, 1 night-ish inverted
+  // dayPhase 0 = midnight, 0.25 = dawn, 0.5 = noon, 0.75 = dusk
+  const sun = Math.max(0, Math.sin((day - 0.25) * Math.PI * 2));
+  const skyA = 0.04 + sun * 0.08;
+  const bg = ctx.createRadialGradient(cw * 0.5, ch * 0.35, 20, cw * 0.5, ch * 0.55, Math.max(cw, ch) * 0.8);
+  bg.addColorStop(0, sun > 0.3 ? `rgba(40,55,90,${0.5 + sun * 0.3})` : "#0c1220");
+  bg.addColorStop(0.45, sun > 0.2 ? "#0a1020" : "#060a12");
   bg.addColorStop(1, "#020308");
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, cw, ch);
-  ctx.fillStyle = "rgba(255,255,255,0.12)";
+  // warm dusk wash
+  if (day > 0.65 && day < 0.9) {
+    ctx.fillStyle = `rgba(255,120,60,${(1 - Math.abs(day - 0.77) * 8) * 0.06})`;
+    ctx.fillRect(0, 0, cw, ch);
+  }
+  ctx.fillStyle = `rgba(255,255,255,${0.06 + (1 - sun) * 0.12})`;
   for (let i = 0; i < 48; i++) {
     ctx.fillRect((i * 97) % cw, (i * 53) % ch, i % 5 === 0 ? 1.5 : 1, i % 5 === 0 ? 1.5 : 1);
   }
@@ -259,7 +270,7 @@ export function drawWorld(ctx, canvas, world, entities, opts = {}) {
   ctx.scale(scale, scale);
   const t = world.time || 0;
 
-  for (const r of world.rooms) drawRoom(ctx, r, t);
+  for (const r of world.rooms) drawRoom(ctx, r, t, sun);
   for (const w of world.walls) drawWall(ctx, w);
   drawDoorFrames(ctx);
   for (const p of world.props) drawProp(ctx, p, t);
@@ -355,7 +366,7 @@ export function drawWorld(ctx, canvas, world, entities, opts = {}) {
   ctx.restore();
 }
 
-function drawRoom(ctx, r, t) {
+function drawRoom(ctx, r, t, sun = 0.3) {
   const floor = ctx.createLinearGradient(r.x, r.y, r.x + r.w, r.y + r.h);
   floor.addColorStop(0, r.color);
   floor.addColorStop(1, shade(r.color, -14));
@@ -376,17 +387,24 @@ function drawRoom(ctx, r, t) {
   for (let y = r.y; y < r.y + r.h; y += tile) {
     ctx.beginPath(); ctx.moveTo(r.x, y); ctx.lineTo(r.x + r.w, y); ctx.stroke();
   }
+  // interior light scales with "day" + room light
+  const lightAmt = r.light * (0.12 + sun * 0.14);
   const g = ctx.createRadialGradient(
     r.x + r.w * 0.45, r.y + r.h * 0.4, 16,
     r.x + r.w * 0.5, r.y + r.h * 0.5, Math.max(r.w, r.h) * 0.55
   );
-  g.addColorStop(0, hexToRgba(r.accent || "#fff", r.light * 0.16));
+  g.addColorStop(0, hexToRgba(r.accent || "#fff", lightAmt));
   g.addColorStop(1, "rgba(0,0,0,0)");
   ctx.fillStyle = g;
   ctx.fillRect(r.x, r.y, r.w, r.h);
+  // night corner shadow
+  if (sun < 0.35) {
+    ctx.fillStyle = `rgba(0,0,0,${0.15 * (1 - sun * 2)})`;
+    ctx.fillRect(r.x, r.y, r.w, r.h);
+  }
   ctx.restore();
 
-  ctx.strokeStyle = hexToRgba(r.accent || "#444", 0.28);
+  ctx.strokeStyle = hexToRgba(r.accent || "#444", 0.28 + sun * 0.1);
   ctx.lineWidth = 1.5;
   roundRect(ctx, r.x + 0.5, r.y + 0.5, r.w - 1, r.h - 1, 8);
   ctx.stroke();
@@ -685,11 +703,18 @@ function drawEntity(ctx, e, highlight, t = 0) {
   const body = e.moodColor || e.color || "#6ec6ff";
   const head = e.headColor || "#cde";
   const isBit = e.id === "bit" || e.name === "Bit";
-  const legSwing = walking ? Math.sin(e.walkPhase || 0) * 5 : 0;
+  const sitting = e.activity === "sit";
+  const working = e.activity === "work";
+  const legSwing = walking && !sitting ? Math.sin(e.walkPhase || 0) * 5 : 0;
 
   ctx.fillStyle = shade(body, -45);
-  ctx.fillRect(-8, 8, 5.5, 8 + legSwing * 0.35);
-  ctx.fillRect(2.5, 8, 5.5, 8 - legSwing * 0.35);
+  if (sitting) {
+    ctx.fillRect(-9, 6, 7, 6);
+    ctx.fillRect(2, 6, 7, 6);
+  } else {
+    ctx.fillRect(-8, 8, 5.5, 8 + legSwing * 0.35);
+    ctx.fillRect(2.5, 8, 5.5, 8 - legSwing * 0.35);
+  }
 
   ctx.shadowColor = body;
   ctx.shadowBlur = highlight ? 22 : 14;
@@ -697,9 +722,18 @@ function drawEntity(ctx, e, highlight, t = 0) {
   bg.addColorStop(0, shade(body, 30));
   bg.addColorStop(1, shade(body, -25));
   ctx.fillStyle = bg;
-  roundRect(ctx, -12, -7, 24, 20, 7);
+  if (sitting) roundRect(ctx, -12, -4, 24, 16, 7);
+  else roundRect(ctx, -12, -7, 24, 20, 7);
   ctx.fill();
   ctx.shadowBlur = 0;
+
+  if (working) {
+    ctx.fillStyle = "rgba(80,255,160,0.4)";
+    ctx.shadowColor = "#5f5";
+    ctx.shadowBlur = 12;
+    ctx.fillRect(11, -5, 7, 10);
+    ctx.shadowBlur = 0;
+  }
 
   ctx.fillStyle = "rgba(255,255,255,0.14)";
   roundRect(ctx, -7, -2, 14, 9, 3);

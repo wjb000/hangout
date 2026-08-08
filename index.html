@@ -8,13 +8,40 @@
 </head>
 <body>
   <div id="hud-top">
-    <div id="scenario-bar">
-      <span id="scenario-title">Hangout</span>
-      <span id="phase-label">Bit &amp; Nox</span>
-      <span id="brain-mode" title="click to cycle">brain: hybrid</span>
+    <div id="brand">
+      <span class="logo">Hangout</span>
+      <span id="day-label">dusk</span>
+      <span id="brain-mode" title="cycle brain">hybrid</span>
     </div>
-    <div id="objective-row">
-      <div id="objective">▸ Watch the AIs live in the void — talk, roam, react</div>
+    <div id="topic-bar" class="hidden">
+      <span class="topic-tag">talking</span>
+      <span id="topic-text">—</span>
+    </div>
+    <div id="agent-cards">
+      <div class="acard bit" id="card-bit">
+        <div class="acard-head">
+          <span class="dot"></span>
+          <strong>Bit</strong>
+          <span class="act" id="bit-act">roam</span>
+        </div>
+        <div class="meters">
+          <div class="m"><i id="bit-energy"></i></div>
+          <div class="m social"><i id="bit-social"></i></div>
+        </div>
+        <div class="goal" id="bit-goal">…</div>
+      </div>
+      <div class="acard nox" id="card-nox">
+        <div class="acard-head">
+          <span class="dot"></span>
+          <strong>Nox</strong>
+          <span class="act" id="nox-act">roam</span>
+        </div>
+        <div class="meters">
+          <div class="m"><i id="nox-energy"></i></div>
+          <div class="m social"><i id="nox-social"></i></div>
+        </div>
+        <div class="goal" id="nox-goal">…</div>
+      </div>
     </div>
     <div id="status">booting…</div>
     <div id="rel-bar"></div>
@@ -23,34 +50,34 @@
   <div id="onboard" class="hidden">
     <div class="onboard-card">
       <h2>Hangout</h2>
-      <p class="onboard-lead">Two autonomous agents share a small world. No scores. No orbs. Just presence.</p>
+      <p class="onboard-lead">Bit and Nox live here. They roam, rest, work, and talk in threads — not a game, a place.</p>
       <ul class="onboard-list">
-        <li><b>Bit</b> — curious cyan glitch</li>
-        <li><b>Nox</b> — dry coral glitch</li>
-        <li>They pathfind, chat, use props, notice you</li>
+        <li>Multi-turn conversations on shared topics</li>
+        <li>Energy &amp; social needs drive behavior</li>
+        <li>Day cycles through the rooms</li>
       </ul>
-      <p class="onboard-keys">
-        Optional: drag path · <kbd>Q</kbd> call · <kbd>E</kbd> beacon · <kbd>C</kbd> cam · <kbd>D</kbd> debug
-      </p>
-      <button type="button">Enter hangout</button>
+      <p class="onboard-keys"><kbd>Q</kbd> call · <kbd>E</kbd> beacon · <kbd>C</kbd> cam · click them or props</p>
+      <button type="button">Enter</button>
     </div>
   </div>
 
   <div id="phase-banner" class="hidden">
     <div class="pb-title">HANGOUT</div>
-    <div class="pb-sub">they're live</div>
+    <div class="pb-sub">they're awake</div>
   </div>
 
-  <canvas id="world" aria-label="simulation world"></canvas>
-  <canvas id="vision" width="256" height="160" aria-label="VLA camera"></canvas>
-  <div id="vision-meta">◈ agent eye</div>
-  <canvas id="minimap" width="176" height="110" aria-label="minimap"></canvas>
+  <canvas id="world" aria-label="hangout world"></canvas>
+  <div id="side-panels">
+    <canvas id="vision" width="256" height="160" aria-label="agent eye"></canvas>
+    <div id="vision-meta">◈ eye</div>
+    <canvas id="minimap" width="176" height="110" aria-label="map"></canvas>
+  </div>
 
   <div id="toasts"></div>
-  <div id="chatlog" aria-label="chat log"></div>
+  <div id="chatlog"></div>
 
   <div id="debug" class="hidden">
-    <div class="dbg-title">debug <kbd>D</kbd> · brain click top</div>
+    <div class="dbg-title">debug <kbd>D</kbd></div>
     <pre id="dbg-body"></pre>
   </div>
 
@@ -62,9 +89,7 @@
   </div>
 
   <div id="progress"><i></i></div>
-  <div id="hint">
-    pure AI hangout · <kbd>Q</kbd> call · <kbd>E</kbd> beacon · <kbd>C</kbd> cam · <kbd>D</kbd> debug
-  </div>
+  <div id="hint">living sim · no scores · <kbd>Q</kbd> <kbd>E</kbd> <kbd>C</kbd> <kbd>B</kbd> <kbd>D</kbd></div>
 
   <script type="module" src="main.js"></script>
 </body>

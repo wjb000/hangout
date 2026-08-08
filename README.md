@@ -1,47 +1,35 @@
 # Hangout
 
-Two autonomous AIs (**Bit** & **Nox**) share a small multi-room world.  
-They pathfind, talk, use props, and notice each other — **no scores, no orbs, no missions**.
+A **living social sim** — Bit and Nox share a multi-room void.  
+They roam, rest, work, and hold multi-turn conversations. No scores. No orbs.
 
 **Live:** https://wjb000.github.io/hangout/
 
-## Brain modes
+## What’s new (major)
 
-Click **`brain:`** or press **B**:
-
-| Mode | Behavior |
-|------|----------|
-| **hybrid** | Vision model when it “sees” well; social planner otherwise |
-| **heuristic** | Planner only (works without WebGPU) |
-| **vlm** | Prefer the vision model |
+| System | Behavior |
+|--------|----------|
+| **Dialogue threads** | Shared topics, 3–6 turn chats, cooldown |
+| **Needs** | Energy & social meters drive sit / talk / explore |
+| **Activities** | `roam` · `chat` · `sit` · `work` · `use` |
+| **Day cycle** | Night → dawn → day → dusk lighting |
+| **Pathfinding** | Wall-aware A\* |
+| **Hybrid brain** | VLM when vision is good; social planner otherwise |
 
 ## Controls (optional)
 
-| Input | Action |
-|-------|--------|
-| Mouse / drag | You walk a path |
-| Click Bit/Nox | Nudge the other toward them |
-| Click a prop | Send nearer AI to it |
-| **Q** | Call both AIs |
+| | |
+|--|--|
+| Drag | Walk |
+| Click agent / prop | Nudge AI |
+| **Q** | Call |
 | **E** | Beacon |
-| **C** | Spectator cam ↔ wide |
+| **C** | Camera |
+| **B** | Brain mode |
 | **D** | Debug |
 
-Just open the page and watch — interaction is optional.
+Or just open the page and watch them live.
 
-## Stack
+## Brain modes
 
-- Rooms: Lobby, Lab, Den, Yard  
-- In-browser **SmolVLM** (WebGPU) + ground-truth social planner  
-- Wall-aware **A\*** pathfinding  
-- Spatial SFX, chat log, relationships  
-
-## Optional remote VLM
-
-```js
-window.HANGOUT_VLM = {
-  baseUrl: "https://api.x.ai/v1",
-  apiKey: "YOUR_KEY",
-  model: "grok-2-vision-1212",
-};
-```
+`hybrid` (default) · `heuristic` (no WebGPU) · `vlm`
