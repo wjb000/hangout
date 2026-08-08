@@ -34,6 +34,7 @@ import {
   scoreSee,
 } from "./vision.js";
 import { hybridDecide, planFromTruth } from "./planner.js";
+import { setNavTo, clearNav, followNav } from "./pathfind.js";
 
 // ── Config ──────────────────────────────────────────────────
 const MODEL_CANDIDATES = [
@@ -55,7 +56,7 @@ const SEE_TRUST = 0.32;
 
 const MOVES = new Set([
   "forward", "back", "left", "right", "turn_left", "turn_right",
-  "toward", "away", "idle", "wait",
+  "toward", "away", "idle", "wait", "nav",
   "orbit_other", "patrol_edge", "follow", "follow_human", "goto_beacon",
   "up", "down", "upleft", "upright", "downleft", "downright",
 ]);
@@ -111,6 +112,8 @@ let slowMo = 0;
 let spectator = true; // auto cam
 let cam = { x: WORLD_W / 2, y: WORLD_H / 2, zoom: 1, tx: WORLD_W / 2, ty: WORLD_H / 2, tz: 1 };
 let hintTimer = 45;
+let juice = 0; // screen flash
+let throws = []; // {x,y,vx,vy,orb,life}
 
 const transcript = [];
 const replayLog = [];
@@ -124,11 +127,19 @@ const human = {
   kind: "human",
   x: WORLD_W / 2,
   y: WORLD_H / 2,
-  color: "#55ff55",
+  color: "#55ff88",
+  headColor: "#c8ffe0",
+  nameColor: "#6f6",
+  angle: 0,
+  facing: 1,
+  walkPhase: 0,
+  moving: false,
   lastSaid: "",
   holding: null,
   path: [],
   assign: null, // {forAgent, kind, id, x, y}
+  thought: "",
+  thoughtT: 0,
 };
 
 const relations = {
@@ -175,6 +186,10 @@ function createAgent(cfg) {
     skillT: 0,
     walkPhase: 0,
     moving: false,
+    navPath: null,
+    navIndex: 0,
+    thought: "",
+    thoughtT: 0,
     _lastRoom: null,
   };
 }
@@ -257,6 +272,59 @@ function toast(msg, kind = "") {
   setTimeout(() => el.classList.add("fade"), 2200);
   setTimeout(() => el.remove(), 3000);
 }
+
+function juicePop(amount = 0.55) {
+  juice = Math.max(juice, amount);
+}
+
+function showPhaseBanner(title, sub = "") {
+  const el = document.getElementById("phase-banner");
+  if (!el) return;
+  el.querySelector(".pb-title").textContent = title;
+  el.querySelector(".pb-sub").textContent = sub;
+  el.classList.remove("hidden", "out");
+  void el.offsetWidth;
+  el.classList.add("show");
+  setTimeout(() => {
+    el.classList.add("out");
+    setTimeout(() => el.classList.add("hidden"), 500);
+  }, 1600);
+  juicePop(0.4);
+}
+
+function updateObjectiveHUD() {
+  const el = document.getElementById("objective");
+  if (!el) return;
+  const lines = {
+    1: "Each agent must hold an orb — click orbs to assign · pathfind is on",
+    2: "Bit & Nox must meet in the same room (line of sight)",
+    3: "Secure all 3 orbs (agents or you) — handoff with F, throw with T",
+  };
+  el.textContent = `▸ ${lines[phase] || lines[1]}`;
+  const arrow = document.getElementById("obj-arrow");
+  if (arrow) {
+    // point toward nearest free orb or partner mid
+    let tx = WORLD_W / 2;
+    let ty = WORLD_H / 2;
+    if (phase === 2) {
+      tx = (bit.x + nox.x) / 2;
+      ty = (bit.y + nox.y) / 2;
+    } else {
+      const free = world.pickups.filter((p) => !p.heldBy);
+      if (free.length) {
+        const mid = { x: (bit.x + nox.x) / 2, y: (bit.y + nox.y) / 2 };
+        free.sort((a, b) => dist(mid, a) - dist(mid, b));
+        tx = free[0].x;
+        ty = free[0].y;
+      }
+    }
+    const camX = spectator ? cam.x : WORLD_W / 2;
+    const camY = spectator ? cam.y : WORLD_H / 2;
+    const ang = Math.atan2(ty - camY, tx - camX);
+    arrow.style.transform = `rotate(${ang}rad)`;
+    arrow.classList.toggle("hidden", false);
+  }
+}
 function fmtTime(s) {
   const m = Math.floor(Math.max(0, s) / 60);
   const sec = Math.floor(Math.max(0, s) % 60);
@@ -332,6 +400,7 @@ function updatePhase() {
     p1.done = true;
     sfx.goal();
     toast("Phase 1 clear — now meet up!", "good");
+    showPhaseBanner("PHASE 2", "Meet in the same room");
     markHighlight("phase", (bit.x + nox.x) / 2, (bit.y + nox.y) / 2);
     if (phase < 2) {
       phase = 2;
@@ -356,8 +425,10 @@ function updatePhase() {
     p2.done = true;
     sfx.goal();
     toast(`Phase 2 clear — met in ${rb.name}`, "good");
+    showPhaseBanner("PHASE 3", "Lock down every orb");
     markHighlight("meet", (bit.x + nox.x) / 2, (bit.y + nox.y) / 2);
     slowMo = 1.2;
+    juicePop(0.7);
     bumpRelation("bit_nox", 0.2);
     if (phase < 3) {
       phase = 3;
@@ -387,6 +458,7 @@ function updatePhase() {
 
   renderGoals();
   renderRelations();
+  updateObjectiveHUD();
 }
 
 function updateQuests() {
@@ -558,12 +630,14 @@ function applyAct(agent, act) {
     agent.holding = p;
     sfx.grab(agent.x, agent.y);
     sfx.success(agent.x, agent.y);
-    spawnParticle(world, agent.x, agent.y, p.color, 12);
-    spawnFlash(world, agent.x, agent.y, p.color, 40);
+    spawnParticle(world, agent.x, agent.y, p.color, 14);
+    spawnFlash(world, agent.x, agent.y, p.color, 48);
     markHighlight("grab", agent.x, agent.y);
-    slowMo = Math.max(slowMo, 0.55);
+    slowMo = Math.max(slowMo, 0.65);
+    juicePop();
     toast(`${agent.name} grabbed ${p.id}`, "good");
     rememberLong(agent, `got ${p.id}`);
+    setThought(agent, "GOT");
     updateQuests();
     return;
   }
@@ -589,6 +663,12 @@ function applyAct(agent, act) {
   }
 }
 
+function setThought(agent, text) {
+  if (!text) return;
+  agent.thought = String(text).slice(0, 8).toUpperCase();
+  agent.thoughtT = 1.1;
+}
+
 function applyAction(agent, action) {
   if (!action) return;
   agent.lastAction = action;
@@ -597,20 +677,42 @@ function applyAction(agent, action) {
   if (action.mood && MOODS.has(String(action.mood))) agent.mood = String(action.mood);
   if (action.see) agent.lastSaw = String(action.see).slice(0, 120);
 
-  const face = action._face != null ? action._face : null;
-  // face target before forward
-  if (face != null) setAngle(agent, face);
-  else if (action.move === "forward" && action._face == null) {
-    /* keep */
-  }
+  if (action.thought) setThought(agent, action.thought);
+  else if (action.act === "grab") setThought(agent, "GRAB");
+  else if (action.move === "toward" || action.move === "follow") setThought(agent, "MEET");
+  else if (action._nav) setThought(agent, "SEEK");
+  else if (action.move && action.move !== "idle") setThought(agent, action.move.slice(0, 6));
 
-  // look_at
+  const face = action._face != null ? action._face : null;
+  if (face != null) setAngle(agent, face);
+
   if (action.look_at && action.look_at !== "none") {
     const t = resolveLook(agent, action.look_at);
     if (t) setAngle(agent, Math.atan2(t.y - agent.y, t.x - agent.x));
   }
 
-  issueMove(agent, action.move || "idle", action.steps ?? 3, face);
+  // Wall-aware navigation target
+  if (action._nav && action._nav.x != null) {
+    clearNav(agent);
+    setNavTo(world, agent, action._nav.x, action._nav.y);
+    agent.intent = { vx: 0, vy: 0, remaining: 0, label: "nav", skill: null };
+  } else if (action.move === "toward") {
+    const o = agent === bit ? nox : bit;
+    setNavTo(world, agent, o.x, o.y);
+    agent.intent = { vx: 0, vy: 0, remaining: 0, label: "nav", skill: null };
+  } else if (action.move === "follow_human") {
+    setNavTo(world, agent, human.x, human.y);
+    agent.intent = { vx: 0, vy: 0, remaining: 0, label: "nav", skill: null };
+  } else if (action.move === "goto_beacon" && world.beacon) {
+    setNavTo(world, agent, world.beacon.x, world.beacon.y);
+    agent.intent = { vx: 0, vy: 0, remaining: 0, label: "nav", skill: null };
+  } else if (action.move === "nav" && !action._nav) {
+    issueMove(agent, "idle", 0, face);
+  } else {
+    clearNav(agent);
+    issueMove(agent, action.move || "idle", action.steps ?? 3, face);
+  }
+
   if (action.act) applyAct(agent, action.act);
   if (action.say) trySay(agent, action.say);
   remember(agent, `${agent.hybrid || "?"} ${agent.move} ${action.act || ""}`.trim());
@@ -860,6 +962,21 @@ function skillStep(agent, dt) {
 }
 
 function simulateAgent(agent, dt) {
+  if (agent.thoughtT > 0) agent.thoughtT -= dt;
+
+  // Prefer pathfinding nav
+  if (agent.navPath && agent.navPath.length) {
+    const still = followNav(world, agent, dt, MOVE_SPEED * agent.speedMul, moveWithCollision);
+    if (agent.holding) {
+      agent.holding.x = agent.x;
+      agent.holding.y = agent.y;
+    }
+    if (still) {
+      stepSfx(agent);
+      return;
+    }
+  }
+
   if (skillStep(agent, dt)) {
     stepSfx(agent);
     return;
@@ -925,23 +1042,109 @@ function stepSfx(agent) {
 }
 
 function simulateHuman(dt) {
-  // follow drawn path
+  if (human.thoughtT > 0) human.thoughtT -= dt;
+  // follow drawn path with wall collision
   if (human.path.length) {
     const t = human.path[0];
     const dx = t.x - human.x;
     const dy = t.y - human.y;
     const L = Math.hypot(dx, dy) || 1;
-    const sp = 160 * dt;
-    if (L < 8) human.path.shift();
+    const sp = 165 * dt;
+    if (L < 10) human.path.shift();
     else {
-      human.x += (dx / L) * sp;
-      human.y += (dy / L) * sp;
+      const res = moveWithCollision(
+        world,
+        human.x,
+        human.y,
+        human.x + (dx / L) * sp,
+        human.y + (dy / L) * sp,
+        12
+      );
+      human.x = res.x;
+      human.y = res.y;
+      human.angle = Math.atan2(dy, dx);
+      human.facing = Math.cos(human.angle) >= 0 ? 1 : -1;
+      human.walkPhase += dt * 14;
+      human.moving = true;
     }
+  } else {
+    human.moving = false;
   }
-  if (human.holding) {
+  if (human.holding && !throws.some((th) => th.orb === human.holding)) {
     human.holding.x = human.x;
     human.holding.y = human.y;
   }
+
+  // flying orbs
+  for (let i = throws.length - 1; i >= 0; i--) {
+    const th = throws[i];
+    th.life -= dt;
+    th.x += th.vx * dt;
+    th.y += th.vy * dt;
+    th.orb.x = th.x;
+    th.orb.y = th.y;
+    // catch by agents
+    for (const a of agents) {
+      if (a.holding) continue;
+      if (Math.hypot(a.x - th.x, a.y - th.y) < 28) {
+        a.holding = th.orb;
+        th.orb.heldBy = a.id;
+        throws.splice(i, 1);
+        sfx.grab(a.x, a.y);
+        spawnParticle(world, a.x, a.y, th.orb.color, 10);
+        juicePop(0.35);
+        toast(`${a.name} caught the orb!`, "good");
+        setThought(a, "CATCH");
+        updateQuests();
+        th._done = true;
+        break;
+      }
+    }
+    if (th._done) continue;
+    if (th.life <= 0 || th.x < 20 || th.y < 20 || th.x > WORLD_W - 20 || th.y > WORLD_H - 20) {
+      th.orb.heldBy = null;
+      th.orb.x = Math.max(40, Math.min(WORLD_W - 40, th.x));
+      th.orb.y = Math.max(40, Math.min(WORLD_H - 40, th.y));
+      throws.splice(i, 1);
+      spawnParticle(world, th.orb.x, th.orb.y, th.orb.color, 8);
+    }
+  }
+}
+
+function throwOrb() {
+  if (!human.holding) {
+    toast("Nothing to throw — grab an orb first (F)", "bad");
+    return;
+  }
+  const orb = human.holding;
+  // throw toward nearer agent or facing
+  let tx = human.x + Math.cos(human.angle || 0) * 120;
+  let ty = human.y + Math.sin(human.angle || 0) * 120;
+  const nearer = dist(human, bit) <= dist(human, nox) ? bit : nox;
+  if (dist(human, nearer) < 280) {
+    tx = nearer.x;
+    ty = nearer.y;
+  }
+  const dx = tx - human.x;
+  const dy = ty - human.y;
+  const L = Math.hypot(dx, dy) || 1;
+  const speed = 220;
+  orb.heldBy = "air";
+  human.holding = null;
+  throws.push({
+    x: human.x,
+    y: human.y,
+    vx: (dx / L) * speed,
+    vy: (dy / L) * speed,
+    orb,
+    life: 2.2,
+  });
+  sfx.drop(human.x, human.y);
+  juicePop(0.3);
+  spawnParticle(world, human.x, human.y, orb.color, 8);
+  toast(`Threw ${orb.id}!`, "good");
+  human.thought = "THROW";
+  human.thoughtT = 0.8;
 }
 
 function tickNode(dt) {
@@ -1029,10 +1232,27 @@ function targetLines() {
 
 function entityList() {
   return [
-    { ...bit, moodColor: moodColor(bit), showFov: debugOn, fovRad: Math.PI * 0.55 },
-    { ...nox, moodColor: moodColor(nox), showFov: debugOn, fovRad: Math.PI * 0.55 },
+    {
+      ...bit,
+      moodColor: moodColor(bit),
+      showFov: debugOn,
+      fovRad: Math.PI * 0.55,
+      thought: bit.thoughtT > 0 ? bit.thought : "",
+      statusLine: `${bit.hybrid || brainMode} · ${bit.move}`,
+    },
+    {
+      ...nox,
+      moodColor: moodColor(nox),
+      showFov: debugOn,
+      fovRad: Math.PI * 0.55,
+      thought: nox.thoughtT > 0 ? nox.thought : "",
+      statusLine: `${nox.hybrid || brainMode} · ${nox.move}`,
+    },
     { id: "node", name: "Node", kind: "node", x: world.node.x, y: world.node.y, color: world.node.color },
-    human,
+    {
+      ...human,
+      thought: human.thoughtT > 0 ? human.thought : "",
+    },
   ];
 }
 
@@ -1043,7 +1263,16 @@ function paint() {
     targetOrbIds: targetOrbIds(),
     targetLines: targetLines(),
     path: human.path,
+    juice,
   });
+  // juice vignette overlay in screen space
+  if (juice > 0) {
+    wctx.save();
+    wctx.setTransform(1, 0, 0, 1, 0, 0);
+    wctx.fillStyle = `rgba(180,255,200,${juice * 0.18})`;
+    wctx.fillRect(0, 0, worldCanvas.width, worldCanvas.height);
+    wctx.restore();
+  }
   mctx.clearRect(0, 0, minimapCanvas.width, minimapCanvas.height);
   drawMinimap(mctx, 0, 0, minimapCanvas.width, minimapCanvas.height, world, entityList());
   if (debugOn) {
@@ -1148,6 +1377,7 @@ function motorLoop(now) {
     dt *= 0.35;
     slowMo -= dt / 0.35;
   }
+  if (juice > 0) juice = Math.max(0, juice - dt * 1.8);
 
   world.time += dt;
   updateCamera(dt);
@@ -1316,7 +1546,19 @@ function finishBoot() {
   trySay(bit, "phase one — grab an orb.");
   trySay(nox, "race you.");
   toast("Phase 1: each grab an orb", "good");
+  showPhaseBanner("PHASE 1", "Each grab an orb");
+  updateObjectiveHUD();
   setStatus(`online · ${modelId}`, "");
+  const onboard = document.getElementById("onboard");
+  if (onboard) {
+    onboard.classList.remove("hidden");
+    const dismiss = () => {
+      onboard.classList.add("hidden");
+      unlockAudio();
+    };
+    onboard.querySelector("button")?.addEventListener("click", dismiss, { once: true });
+    setTimeout(dismiss, 12000);
+  }
 }
 
 function cycleBrain() {
@@ -1481,7 +1723,8 @@ function doCall() {
   toast("Calling…", "good");
   for (const a of agents) {
     a.envEvents.push("human CALL");
-    issueMove(a, "follow_human", 6);
+    setNavTo(world, a, human.x, human.y);
+    setThought(a, "COME");
   }
   setTimeout(() => {
     keys.q = false;
@@ -1510,6 +1753,7 @@ window.addEventListener("keydown", (e) => {
   if (k === "q") doCall();
   if (k === "e") doBeacon();
   if (k === "f") tryHandoff();
+  if (k === "t") throwOrb();
   if (k === "h") playHighlightReel();
   if (k === "r") playHighlightReel();
   if (k === "b") cycleBrain();
@@ -1537,6 +1781,7 @@ document.getElementById("m-brain")?.addEventListener("click", cycleBrain);
 updateBrainLabel();
 renderGoals();
 renderRelations();
+updateObjectiveHUD();
 paint();
 requestAnimationFrame(motorLoop);
 requestAnimationFrame(scenarioTick);

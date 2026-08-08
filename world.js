@@ -318,7 +318,9 @@ export function drawWorld(ctx, canvas, world, entities, opts = {}) {
   }
 
   for (const p of world.pickups) {
-    if (!p.heldBy) drawOrb(ctx, p, t, opts.targetOrbIds && opts.targetOrbIds.has(p.id));
+    if (!p.heldBy || p.heldBy === "air") {
+      drawOrb(ctx, p, t, opts.targetOrbIds && opts.targetOrbIds.has(p.id));
+    }
   }
 
   if (world.beacon) {
@@ -612,26 +614,55 @@ function drawEntity(ctx, e, highlight, t = 0) {
   ctx.translate(0, bob);
 
   if (e.kind === "human") {
-    ctx.strokeStyle = "#55ff88";
-    ctx.lineWidth = 2.5;
-    ctx.shadowColor = "#55ff88";
-    ctx.shadowBlur = 14;
-    ctx.beginPath();
-    ctx.arc(0, 0, 14, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(-18, 0); ctx.lineTo(-10, 0);
-    ctx.moveTo(10, 0); ctx.lineTo(18, 0);
-    ctx.moveTo(0, -18); ctx.lineTo(0, -10);
-    ctx.moveTo(0, 10); ctx.lineTo(0, 18);
-    ctx.stroke();
-    ctx.shadowBlur = 0;
-    ctx.fillStyle = "rgba(85,255,136,0.28)";
-    ctx.beginPath();
-    ctx.arc(0, 0, 6, 0, Math.PI * 2);
+    const ang = e.angle ?? 0;
+    const body = e.color || "#55ff88";
+    const head = e.headColor || "#c8ffe0";
+    const walking = e.moving;
+    const legSwing = walking ? Math.sin(e.walkPhase || 0) * 5 : 0;
+    // legs
+    ctx.fillStyle = shade(body, -40);
+    ctx.fillRect(-7, 8, 5, 8 + legSwing * 0.3);
+    ctx.fillRect(2, 8, 5, 8 - legSwing * 0.3);
+    // body
+    ctx.shadowColor = body;
+    ctx.shadowBlur = 16;
+    const bg = ctx.createLinearGradient(-12, -8, 12, 14);
+    bg.addColorStop(0, shade(body, 25));
+    bg.addColorStop(1, shade(body, -20));
+    ctx.fillStyle = bg;
+    roundRect(ctx, -11, -6, 22, 18, 7);
     ctx.fill();
-    if (e.holding) drawMiniOrb(ctx, 16, -10, e.holding.color);
-    drawNameplate(ctx, 0, -28, "YOU", "#6f6");
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = "rgba(255,255,255,0.18)";
+    roundRect(ctx, -6, -1, 12, 8, 3);
+    ctx.fill();
+    // head
+    const hg = ctx.createLinearGradient(-9, -22, 9, -6);
+    hg.addColorStop(0, "#fff");
+    hg.addColorStop(0.4, head);
+    hg.addColorStop(1, shade(head, -15));
+    ctx.fillStyle = hg;
+    roundRect(ctx, -9, -22, 18, 16, 6);
+    ctx.fill();
+    // visor
+    ctx.fillStyle = "#0a1a12";
+    roundRect(ctx, -6, -16, 12, 5, 2);
+    ctx.fill();
+    ctx.fillStyle = "#6f6";
+    ctx.globalAlpha = 0.85;
+    ctx.fillRect(-4, -15, 3, 2);
+    ctx.fillRect(1, -15, 3, 2);
+    ctx.globalAlpha = 1;
+    // facing
+    ctx.strokeStyle = "rgba(200,255,220,0.8)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(ang) * 6, Math.sin(ang) * 6);
+    ctx.lineTo(Math.cos(ang) * 17, Math.sin(ang) * 17);
+    ctx.stroke();
+    if (e.holding) drawMiniOrb(ctx, Math.cos(ang + 0.8) * 14, -6, e.holding.color);
+    drawNameplate(ctx, 0, -36, "YOU", "#6f6");
+    if (e.thought) drawThought(ctx, 0, -48, e.thought);
     ctx.restore();
     return;
   }
@@ -762,6 +793,30 @@ function drawEntity(ctx, e, highlight, t = 0) {
   }
 
   drawNameplate(ctx, 0, -38, e.name, e.nameColor || body);
+  if (e.thought) drawThought(ctx, 0, -52, e.thought);
+  else if (e.statusLine && e.showFov) {
+    // debug status under name when FOV debug on
+  }
+  ctx.restore();
+}
+
+function drawThought(ctx, x, y, text) {
+  ctx.save();
+  ctx.font = "bold 9px ui-monospace, monospace";
+  ctx.textAlign = "center";
+  const w = Math.max(28, ctx.measureText(text).width + 10);
+  ctx.fillStyle = "rgba(255,255,255,0.92)";
+  roundRect(ctx, x - w / 2, y - 10, w, 14, 6);
+  ctx.fill();
+  // tail
+  ctx.beginPath();
+  ctx.moveTo(x - 3, y + 4);
+  ctx.lineTo(x, y + 9);
+  ctx.lineTo(x + 4, y + 4);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = "#1a2030";
+  ctx.fillText(text, x, y);
   ctx.restore();
 }
 

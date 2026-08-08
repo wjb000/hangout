@@ -133,16 +133,18 @@ function goTo(agent, x, y, see, moveOverride) {
   const dy = y - agent.y;
   const d = Math.hypot(dx, dy) || 1;
   const steps = Math.max(2, Math.min(6, Math.round(d / 40)));
-  // prefer toward if chasing other-like; else forward after angle
+  // _nav drives wall-aware pathfinding in the sim
   return {
     see: `truth:${see}`,
-    move: moveOverride || "forward",
+    move: moveOverride || "nav",
     steps,
     act: "none",
     look_at: "none",
     say: "",
     mood: "curious",
     goal: see,
+    thought: see.split(" ")[0].toUpperCase().slice(0, 6),
+    _nav: { x, y },
     _face: Math.atan2(dy, dx),
     _src: "planner",
   };
@@ -157,6 +159,7 @@ function act(actName, move, steps, see, say = "") {
     say,
     mood: actName === "grab" ? "happy" : "curious",
     goal: see,
+    thought: actName === "grab" ? "GRAB" : "ACT",
     _src: "planner",
   };
 }

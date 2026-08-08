@@ -14,9 +14,33 @@
       <span id="scenario-timer">2:00</span>
       <span id="brain-mode" title="click to cycle">brain: hybrid</span>
     </div>
+    <div id="objective-row">
+      <div id="obj-arrow" title="objective direction">➤</div>
+      <div id="objective">▸ Loading objectives…</div>
+    </div>
     <div id="goals"></div>
     <div id="status">booting…</div>
     <div id="rel-bar"></div>
+  </div>
+
+  <div id="onboard" class="hidden">
+    <div class="onboard-card">
+      <h2>Orb Heist</h2>
+      <ol>
+        <li><b>Phase 1</b> — each agent grabs an orb</li>
+        <li><b>Phase 2</b> — Bit &amp; Nox meet</li>
+        <li><b>Phase 3</b> — lock all 3 orbs</li>
+      </ol>
+      <p class="onboard-keys">
+        Drag path · Click orb to assign · <kbd>Q</kbd> call · <kbd>F</kbd> handoff · <kbd>T</kbd> throw
+      </p>
+      <button type="button">Got it — let's go</button>
+    </div>
+  </div>
+
+  <div id="phase-banner" class="hidden">
+    <div class="pb-title">PHASE 1</div>
+    <div class="pb-sub">Each grab an orb</div>
   </div>
 
   <canvas id="world" aria-label="simulation world"></canvas>
@@ -26,7 +50,7 @@
 
   <div id="inv-bar">
     <span>you hold: <b id="inv-label">—</b></span>
-    <span class="inv-hint">click orb = assign · drag = path · F handoff</span>
+    <span class="inv-hint">click orb = assign · drag = path · F handoff · T throw</span>
   </div>
 
   <div id="toasts"></div>
@@ -58,7 +82,7 @@
 
   <div id="progress"><i></i></div>
   <div id="hint">
-    <kbd>Q</kbd> call · <kbd>E</kbd> beacon · <kbd>C</kbd> cam · <kbd>F</kbd> handoff · drag path · <kbd>D</kbd> debug
+    <kbd>Q</kbd> call · <kbd>E</kbd> beacon · <kbd>C</kbd> cam · <kbd>F</kbd> handoff · <kbd>T</kbd> throw · drag path · <kbd>D</kbd> debug
   </div>
 
   <script type="module" src="main.js"></script>
