@@ -11,10 +11,10 @@ export const WORLD_H = 600;
 
 export function createWorld() {
   const rooms = [
-    { id: "lobby", name: "Lobby", x: 40, y: 40, w: 400, h: 280, light: 0.35, color: "#0a1018" },
-    { id: "lab", name: "Lab", x: 480, y: 40, w: 440, h: 280, light: 0.5, color: "#0c0a14" },
-    { id: "den", name: "Den", x: 40, y: 360, w: 540, h: 200, light: 0.28, color: "#100c0a" },
-    { id: "yard", name: "Yard", x: 620, y: 360, w: 300, h: 200, light: 0.45, color: "#0a120c" },
+    { id: "lobby", name: "Lobby", x: 40, y: 40, w: 400, h: 280, light: 0.35, color: "#0a1018", visionColor: "#152030" },
+    { id: "lab", name: "Lab", x: 480, y: 40, w: 440, h: 280, light: 0.5, color: "#0c0a14", visionColor: "#201528" },
+    { id: "den", name: "Den", x: 40, y: 360, w: 540, h: 200, light: 0.28, color: "#100c0a", visionColor: "#281810" },
+    { id: "yard", name: "Yard", x: 620, y: 360, w: 300, h: 200, light: 0.45, color: "#0a120c", visionColor: "#102818" },
   ];
 
   // solid walls (axis-aligned)
@@ -36,14 +36,14 @@ export function createWorld() {
   ];
 
   const props = [
-    { id: "coffee", type: "machine", label: "☕ coffee", x: 120, y: 120, r: 18, solid: true, room: "lobby" },
-    { id: "whiteboard", type: "board", label: "📋 board", x: 300, y: 90, r: 22, solid: true, room: "lobby" },
-    { id: "terminal", type: "console", label: "💻 term", x: 700, y: 120, r: 18, solid: true, room: "lab" },
-    { id: "server", type: "rack", label: "🖧 rack", x: 820, y: 220, r: 20, solid: true, room: "lab" },
-    { id: "couch", type: "seat", label: "🛋 couch", x: 180, y: 460, r: 24, solid: true, room: "den" },
-    { id: "lamp", type: "light", label: "💡 lamp", x: 400, y: 420, r: 14, solid: false, room: "den" },
-    { id: "tree", type: "plant", label: "🌳 tree", x: 780, y: 480, r: 22, solid: true, room: "yard" },
-    { id: "bench", type: "seat", label: "🪑 bench", x: 700, y: 400, r: 18, solid: true, room: "yard" },
+    { id: "coffee", type: "machine", label: "☕ coffee", x: 120, y: 120, r: 18, solid: true, room: "lobby", visionFill: "#c80" },
+    { id: "whiteboard", type: "board", label: "📋 board", x: 300, y: 90, r: 22, solid: true, room: "lobby", visionFill: "#aac" },
+    { id: "terminal", type: "console", label: "💻 term", x: 700, y: 120, r: 18, solid: true, room: "lab", visionFill: "#0a8" },
+    { id: "server", type: "rack", label: "🖧 rack", x: 820, y: 220, r: 20, solid: true, room: "lab", visionFill: "#66a" },
+    { id: "couch", type: "seat", label: "🛋 couch", x: 180, y: 460, r: 24, solid: true, room: "den", visionFill: "#a64" },
+    { id: "lamp", type: "light", label: "💡 lamp", x: 400, y: 420, r: 14, solid: false, room: "den", visionFill: "#ff5" },
+    { id: "tree", type: "plant", label: "🌳 tree", x: 780, y: 480, r: 22, solid: true, room: "yard", visionFill: "#2a6" },
+    { id: "bench", type: "seat", label: "🪑 bench", x: 700, y: 400, r: 18, solid: true, room: "yard", visionFill: "#864" },
   ];
 
   const pickups = [
@@ -64,7 +64,56 @@ export function createWorld() {
     color: "#ffaa00",
   };
 
-  return { rooms, walls, props, pickups, node, time: 0 };
+  return {
+    rooms,
+    walls,
+    props,
+    pickups,
+    node,
+    time: 0,
+    beacon: null, // {x,y,t}
+    particles: [], // {x,y,vx,vy,life,color,size}
+    fxFlash: [], // {x,y,r,color,life}
+  };
+}
+
+export function spawnParticle(world, x, y, color = "#fff", n = 6) {
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const sp = 40 + Math.random() * 80;
+    world.particles.push({
+      x,
+      y,
+      vx: Math.cos(a) * sp,
+      vy: Math.sin(a) * sp,
+      life: 0.35 + Math.random() * 0.35,
+      color,
+      size: 2 + Math.random() * 3,
+    });
+  }
+}
+
+export function spawnFlash(world, x, y, color = "#f44", r = 28) {
+  world.fxFlash.push({ x, y, r, color, life: 0.35 });
+}
+
+export function tickFX(world, dt) {
+  world.particles = world.particles.filter((p) => {
+    p.life -= dt;
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+    p.vx *= 0.96;
+    p.vy *= 0.96;
+    return p.life > 0;
+  });
+  world.fxFlash = world.fxFlash.filter((f) => {
+    f.life -= dt;
+    return f.life > 0;
+  });
+  if (world.beacon) {
+    world.beacon.t -= dt;
+    if (world.beacon.t <= 0) world.beacon = null;
+  }
 }
 
 export function roomAt(world, x, y) {
@@ -274,6 +323,42 @@ export function drawWorld(ctx, canvas, world, entities, opts = {}) {
     ctx.textAlign = "left";
   }
 
+  // beacon
+  if (world.beacon) {
+    const pulse = 12 + Math.sin(world.time * 8) * 6;
+    ctx.strokeStyle = `rgba(80,255,80,${0.4 + 0.4 * Math.sin(world.time * 6)})`;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(world.beacon.x, world.beacon.y, pulse + 10, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = "#5f5";
+    ctx.beginPath();
+    ctx.arc(world.beacon.x, world.beacon.y, 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.font = "11px monospace";
+    ctx.textAlign = "center";
+    ctx.fillText("BEACON", world.beacon.x, world.beacon.y - 22);
+  }
+
+  // particles + flashes
+  for (const f of world.fxFlash) {
+    const a = Math.max(0, f.life / 0.35);
+    ctx.beginPath();
+    ctx.fillStyle = f.color.replace(")", `,${a * 0.35})`).replace("rgb", "rgba").replace("#", "");
+    // simple hex alpha
+    ctx.globalAlpha = a * 0.45;
+    ctx.fillStyle = f.color;
+    ctx.arc(f.x, f.y, f.r * (1.2 - a), 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+  for (const p of world.particles) {
+    ctx.globalAlpha = Math.max(0, p.life * 2);
+    ctx.fillStyle = p.color;
+    ctx.fillRect(p.x, p.y, p.size, p.size);
+    ctx.globalAlpha = 1;
+  }
+
   // entities (sprites + human + node)
   for (const e of entities) {
     drawEntity(ctx, e, opts.highlightId === e.id);
@@ -282,15 +367,55 @@ export function drawWorld(ctx, canvas, world, entities, opts = {}) {
   ctx.restore();
 }
 
+/** Mini-map into a small canvas/context in screen space */
+export function drawMinimap(ctx, x, y, w, h, world, entities) {
+  ctx.save();
+  ctx.fillStyle = "rgba(0,0,0,0.75)";
+  ctx.strokeStyle = "#333";
+  ctx.lineWidth = 1;
+  ctx.fillRect(x, y, w, h);
+  ctx.strokeRect(x, y, w, h);
+  const sx = w / WORLD_W;
+  const sy = h / WORLD_H;
+  for (const r of world.rooms) {
+    ctx.fillStyle = r.color;
+    ctx.fillRect(x + r.x * sx, y + r.y * sy, r.w * sx, r.h * sy);
+    ctx.fillStyle = "#444";
+    ctx.font = "8px monospace";
+    ctx.fillText(r.name[0], x + r.x * sx + 3, y + r.y * sy + 10);
+  }
+  ctx.fillStyle = "#333";
+  for (const wall of world.walls) {
+    ctx.fillRect(x + wall.x * sx, y + wall.y * sy, Math.max(1, wall.w * sx), Math.max(1, wall.h * sy));
+  }
+  for (const p of world.pickups) {
+    if (p.heldBy) continue;
+    ctx.fillStyle = p.color;
+    ctx.fillRect(x + p.x * sx - 2, y + p.y * sy - 2, 4, 4);
+  }
+  if (world.beacon) {
+    ctx.strokeStyle = "#0f0";
+    ctx.strokeRect(x + world.beacon.x * sx - 3, y + world.beacon.y * sy - 3, 6, 6);
+  }
+  for (const e of entities) {
+    ctx.fillStyle = e.color || "#fff";
+    ctx.beginPath();
+    ctx.arc(x + e.x * sx, y + e.y * sy, e.kind === "human" ? 3 : 2.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
 function drawEntity(ctx, e, highlight) {
   const x = e.x;
   const y = e.y;
   const facing = e.facing ?? 1;
   const color = e.color || "#aaa";
+  const bob = e.walkPhase != null ? Math.sin(e.walkPhase) * 2.5 : 0;
 
   // body
   ctx.save();
-  ctx.translate(x, y);
+  ctx.translate(x, y + bob);
 
   if (e.kind === "human") {
     ctx.strokeStyle = color;

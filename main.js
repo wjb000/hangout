@@ -1,6 +1,6 @@
 /**
- * Hangout VLA World — full sim
- * Vision (SmolVLM) → Language/plan → Action → Environment
+ * Hangout VLA World — improved sim
+ * Vision reliability, spatial audio, scenario, replay, relationships, API path
  */
 import {
   AutoProcessor,
@@ -8,7 +8,7 @@ import {
   RawImage,
 } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.5.1";
 
-import { sfx, unlockAudio } from "./audio.js";
+import { sfx, unlockAudio, setListener } from "./audio.js";
 import {
   createWorld,
   roomAt,
@@ -17,13 +17,22 @@ import {
   dist,
   nearestProp,
   nearestFreePickup,
-  viewTransform,
   screenToWorld,
   drawWorld,
+  drawMinimap,
+  spawnParticle,
+  spawnFlash,
+  tickFX,
   WORLD_W,
   WORLD_H,
 } from "./world.js";
-import { captureEgocentric, pushFrameHistory } from "./vision.js";
+import {
+  captureEgocentric,
+  pushFrameHistory,
+  visibleTruth,
+  truthToString,
+  scoreSee,
+} from "./vision.js";
 
 // ── Config ──────────────────────────────────────────────────
 const MODEL_CANDIDATES = [
@@ -31,50 +40,71 @@ const MODEL_CANDIDATES = [
   "HuggingFaceTB/SmolVLM-500M-Instruct",
 ];
 const STEP_PX = 40;
-const MOVE_SPEED = 120;
+const MOVE_SPEED = 125;
 const HEAR_RANGE = 160;
 const GRAB_RANGE = 36;
-const MOTOR_HZ = 60;
-const VLA_GAP_MS = 200;
-const MEMORY_KEY = "hangout_vla_memory_v1";
+const VLA_GAP_MS = 120;
+const IDLE_SKIP_CHANCE = 0.35;
+const MEMORY_KEY = "hangout_vla_memory_v2";
+const REPLAY_KEY = "hangout_vla_last_replay";
 const CHAT_MAX = 18;
 const CHAT_FADE_MS = 14000;
+const SCENARIO_SECS = 180; // 3 minutes
+const MAX_RETRIES = 2;
 
-// Valid action tokens (constrained schema)
 const MOVES = new Set([
   "forward", "back", "left", "right", "turn_left", "turn_right",
   "toward", "away", "idle", "wait",
-  "orbit_other", "patrol_edge", "follow",
-  "up", "down", "upleft", "upright", "downleft", "downright", // aliases
+  "orbit_other", "patrol_edge", "follow", "follow_human", "goto_beacon",
+  "up", "down", "upleft", "upright", "downleft", "downright",
 ]);
 const ACTS = new Set(["none", "grab", "drop", "use", "wave"]);
 const MOODS = new Set(["idle", "think", "happy", "curious", "wave"]);
+
+// Optional remote OpenAI-compatible VLM (set in console):
+//   window.HANGOUT_VLM = { baseUrl: "https://api.x.ai/v1", apiKey: "...", model: "grok-2-vision-1212" }
+// Leaves local SmolVLM as default when unset.
 
 // ── DOM ─────────────────────────────────────────────────────
 const worldCanvas = document.getElementById("world");
 const visionCanvas = document.getElementById("vision");
 const visionMeta = document.getElementById("vision-meta");
+const minimapCanvas = document.getElementById("minimap");
 const chatlog = document.getElementById("chatlog");
 const statusEl = document.getElementById("status");
 const goalsEl = document.getElementById("goals");
+const relBar = document.getElementById("rel-bar");
 const progressEl = document.getElementById("progress");
 const progressBar = progressEl.querySelector("i");
 const debugEl = document.getElementById("debug");
 const dbgBody = document.getElementById("dbg-body");
+const toastsEl = document.getElementById("toasts");
+const scenarioTimerEl = document.getElementById("scenario-timer");
+const winModal = document.getElementById("win-modal");
+const winText = document.getElementById("win-text");
+const winStats = document.getElementById("win-stats");
+const winAgain = document.getElementById("win-again");
 
 const wctx = worldCanvas.getContext("2d");
+const mctx = minimapCanvas.getContext("2d");
 
 // ── State ───────────────────────────────────────────────────
-const world = createWorld();
+let world = createWorld();
 let processor = null;
 let model = null;
 let modelId = "";
 let running = true;
+let won = false;
 let debugOn = false;
 let lastMotor = 0;
-let lastStepSfx = 0;
+let lastStepSfx = { bit: 0, nox: 0 };
+let scenarioLeft = SCENARIO_SECS;
+let keys = { q: false };
+let callPulse = 0;
 
-const transcript = []; // spoken lines with positions for range checks later
+const transcript = [];
+const replayLog = []; // compact samples
+let replayPlaying = false;
 
 const human = {
   id: "you",
@@ -84,6 +114,15 @@ const human = {
   y: WORLD_H / 2,
   color: "#55ff55",
   lastSaid: "",
+};
+
+// relationship matrix: -1..1
+const relations = {
+  bit_nox: 0.1,
+  bit_you: 0,
+  nox_you: -0.05,
+  bit_node: 0,
+  nox_node: 0,
 };
 
 function createAgent(cfg) {
@@ -107,10 +146,13 @@ function createAgent(cfg) {
     goal: cfg.goal,
     lastSaid: "",
     lastSaw: "",
+    lastTruth: "",
+    seeScore: 0,
     speedMul: 1,
     ticks: 0,
-    memory: [],       // short-term
-    longTerm: [],     // persistent snippets
+    idleTicks: 0,
+    memory: [],
+    longTerm: [],
     envEvents: [],
     holding: null,
     frameHistory: [],
@@ -118,6 +160,8 @@ function createAgent(cfg) {
     lastRaw: "",
     lookAt: null,
     skillT: 0,
+    walkPhase: 0,
+    moving: false,
   };
 }
 
@@ -128,11 +172,11 @@ const bit = createAgent({
   color: "#6ec6ff",
   headColor: "#b8e4ff",
   nameColor: "#6ec6ff",
-  persona: "optimistic cyan glitch; curious, friendly, loves orbs and coffee",
+  persona: "optimistic cyan glitch; loves orbs, coffee, and teamwork",
   x: 160,
   y: 180,
   angle: 0,
-  goal: "meet Nox and collect an orb",
+  goal: "help collect all three orbs with Nox before time runs out",
 });
 
 const nox = createAgent({
@@ -142,24 +186,24 @@ const nox = createAgent({
   color: "#ff7a6e",
   headColor: "#ffc4bc",
   nameColor: "#ff7a6e",
-  persona: "dry coral glitch; teases Bit, secretly maps the rooms",
+  persona: "dry coral glitch; competitive but will cooperate on the orb heist",
   x: 780,
   y: 180,
   angle: Math.PI,
-  goal: "explore lab then bump into Bit",
+  goal: "grab orbs fast, maybe let Bit help",
 });
 
 const agents = [bit, nox];
 
-// Quest board
+// Scenario quests
 const quests = [
-  { id: "meet", label: "Bit & Nox meet (close + LOS)", progress: 0, target: 1, done: false },
-  { id: "orbs", label: "Collect orbs (held or banked)", progress: 0, target: 3, done: false },
-  { id: "rooms", label: "Visit all rooms (combined)", progress: 0, target: 4, done: false, seen: new Set() },
-  { id: "talk", label: "Exchange 6 spoken lines", progress: 0, target: 6, done: false },
+  { id: "orbs", label: "Hold all 3 orbs (combined)", progress: 0, target: 3, done: false },
+  { id: "meet", label: "Meet in same room with LOS", progress: 0, target: 1, done: false },
+  { id: "bank", label: "Both hold an orb at once", progress: 0, target: 1, done: false },
+  { id: "talk", label: "6 lines of chat", progress: 0, target: 6, done: false },
 ];
 
-// ── Memory persistence ──────────────────────────────────────
+// ── Memory ──────────────────────────────────────────────────
 function loadMemory() {
   try {
     const raw = localStorage.getItem(MEMORY_KEY);
@@ -168,18 +212,8 @@ function loadMemory() {
     for (const a of agents) {
       const m = data[a.id];
       if (m?.longTerm) a.longTerm = m.longTerm.slice(-12);
-      if (m?.goal) a.goal = m.goal;
     }
-    if (data.quests) {
-      for (const q of quests) {
-        const s = data.quests.find((x) => x.id === q.id);
-        if (s) {
-          q.progress = s.progress || 0;
-          q.done = !!s.done;
-          if (q.id === "rooms" && s.seen) q.seen = new Set(s.seen);
-        }
-      }
-    }
+    if (data.relations) Object.assign(relations, data.relations);
   } catch {
     /* */
   }
@@ -187,19 +221,9 @@ function loadMemory() {
 
 function saveMemory() {
   try {
-    const data = {
-      quests: quests.map((q) => ({
-        id: q.id,
-        progress: q.progress,
-        done: q.done,
-        seen: q.seen ? [...q.seen] : undefined,
-      })),
-    };
+    const data = { relations: { ...relations } };
     for (const a of agents) {
-      data[a.id] = {
-        longTerm: a.longTerm.slice(-12),
-        goal: a.goal,
-      };
+      data[a.id] = { longTerm: a.longTerm.slice(-12), goal: a.goal };
     }
     localStorage.setItem(MEMORY_KEY, JSON.stringify(data));
   } catch {
@@ -209,7 +233,7 @@ function saveMemory() {
 
 loadMemory();
 
-// ── UI helpers ──────────────────────────────────────────────
+// ── UI ──────────────────────────────────────────────────────
 function setStatus(text, kind = "") {
   statusEl.textContent = text;
   statusEl.className = kind;
@@ -223,11 +247,20 @@ function escapeHtml(s) {
     .replace(/>/g, "&gt;");
 }
 
-function logSpeech(name, text, cssClass, pos = null) {
+function toast(msg, kind = "") {
+  const el = document.createElement("div");
+  el.className = `toast ${kind}`;
+  el.textContent = msg;
+  toastsEl.appendChild(el);
+  setTimeout(() => el.classList.add("fade"), 2200);
+  setTimeout(() => el.remove(), 3000);
+}
+
+function logSpeech(name, text, cssClass, pos = null, opts = {}) {
   const msg = String(text || "").trim();
   if (!msg) return;
   transcript.push({ name, text: msg, t: Date.now(), x: pos?.x, y: pos?.y });
-  if (transcript.length > 20) transcript.shift();
+  if (transcript.length > 24) transcript.shift();
 
   const line = document.createElement("div");
   line.className = "line";
@@ -237,11 +270,11 @@ function logSpeech(name, text, cssClass, pos = null) {
   setTimeout(() => line.classList.add("fade"), CHAT_FADE_MS);
   setTimeout(() => line.remove(), CHAT_FADE_MS + 1500);
 
-  sfx.talk(cssClass);
-  quests.find((q) => q.id === "talk").progress = Math.min(
-    6,
-    (quests.find((q) => q.id === "talk").progress || 0) + 1
-  );
+  const muted = !!opts.muted;
+  sfx.talk(cssClass, pos?.x, pos?.y, muted);
+
+  const tq = quests.find((q) => q.id === "talk");
+  tq.progress = Math.min(tq.target, tq.progress + 1);
   updateQuests();
 }
 
@@ -254,50 +287,115 @@ function renderGoals() {
     .join("");
 }
 
+function renderRelations() {
+  const bn = relations.bit_nox;
+  const by = relations.bit_you;
+  const ny = relations.nox_you;
+  const face = (v) => (v > 0.35 ? "♥" : v < -0.25 ? "💢" : "·");
+  relBar.textContent = `Bit↔Nox ${face(bn)} ${bn.toFixed(2)}  Bit↔You ${face(by)} ${by.toFixed(2)}  Nox↔You ${face(ny)} ${ny.toFixed(2)}`;
+}
+
+function bumpRelation(key, delta, reason) {
+  if (!(key in relations)) return;
+  const before = relations[key];
+  relations[key] = Math.max(-1, Math.min(1, relations[key] + delta));
+  if (Math.abs(relations[key] - before) > 0.04) {
+    saveMemory();
+  }
+  if (reason && Math.abs(delta) >= 0.08) {
+    toast(`${reason}`, delta > 0 ? "good" : "bad");
+  }
+}
+
 function updateQuests() {
-  // meet
-  const d = dist(bit, nox);
+  const held = world.pickups.filter((p) => p.heldBy).length;
+  const oq = quests.find((q) => q.id === "orbs");
+  if (held > oq.progress) {
+    toast(`Orb secured (${held}/3)`, "good");
+  }
+  oq.progress = held;
+  if (oq.progress >= oq.target && !oq.done) {
+    oq.done = true;
+    sfx.goal();
+    toast("All orbs held!", "good");
+  }
+
   const meet = quests.find((q) => q.id === "meet");
-  if (!meet.done && d < 70 && hasLOS(world, bit.x, bit.y, nox.x, nox.y)) {
+  const rb = roomAt(world, bit.x, bit.y);
+  const rn = roomAt(world, nox.x, nox.y);
+  if (
+    !meet.done &&
+    rb &&
+    rn &&
+    rb.id === rn.id &&
+    dist(bit, nox) < 90 &&
+    hasLOS(world, bit.x, bit.y, nox.x, nox.y)
+  ) {
     meet.progress = 1;
     meet.done = true;
     sfx.goal();
-    rememberLong(bit, "met Nox in person");
-    rememberLong(nox, "met Bit in person");
+    toast(`${rb.name}: Bit & Nox reunited`, "good");
+    bumpRelation("bit_nox", 0.15, "Bit & Nox bonded");
   }
 
-  // orbs held
-  const orbs = quests.find((q) => q.id === "orbs");
-  const held = world.pickups.filter((p) => p.heldBy).length;
-  // count unique holders progress as held count (simple)
-  orbs.progress = Math.max(orbs.progress, held);
-  // also count if all picked at least once via longTerm — keep simple: held max
-  if (orbs.progress >= orbs.target) {
-    if (!orbs.done) sfx.goal();
-    orbs.done = true;
-  }
-
-  // rooms
-  const rq = quests.find((q) => q.id === "rooms");
-  for (const a of agents) {
-    const r = roomAt(world, a.x, a.y);
-    if (r) rq.seen.add(r.id);
-  }
-  rq.progress = rq.seen.size;
-  if (rq.progress >= rq.target && !rq.done) {
-    rq.done = true;
+  const bank = quests.find((q) => q.id === "bank");
+  if (!bank.done && bit.holding && nox.holding) {
+    bank.progress = 1;
+    bank.done = true;
     sfx.goal();
+    toast("Both agents holding orbs!", "good");
+    bumpRelation("bit_nox", 0.1);
   }
 
-  // talk
   const tq = quests.find((q) => q.id === "talk");
   if (tq.progress >= tq.target && !tq.done) {
     tq.done = true;
     sfx.goal();
+    toast("Chatty void achieved", "good");
+  }
+
+  // room enter toasts
+  for (const a of agents) {
+    const r = roomAt(world, a.x, a.y);
+    if (r && a._lastRoom !== r.id) {
+      if (a._lastRoom) toast(`${a.name} entered ${r.name}`);
+      a._lastRoom = r.id;
+    }
   }
 
   renderGoals();
+  renderRelations();
+  checkWin();
   saveMemory();
+}
+
+function checkWin() {
+  if (won) return;
+  // Win: all orbs held AND meet done, or all 4 quests done, within time
+  const orbsDone = quests.find((q) => q.id === "orbs").done;
+  const meetDone = quests.find((q) => q.id === "meet").done;
+  const allDone = quests.every((q) => q.done);
+  if ((orbsDone && meetDone) || allDone) {
+    triggerWin(allDone ? "Full clear — every objective done." : "Orb heist success — team has the loot.");
+  }
+}
+
+function triggerWin(msg) {
+  if (won) return;
+  won = true;
+  running = false;
+  sfx.win();
+  winText.textContent = msg;
+  winStats.textContent = `Time left ${fmtTime(scenarioLeft)} · Bit↔Nox ${relations.bit_nox.toFixed(2)} · lines ${transcript.length}`;
+  winModal.classList.remove("hidden");
+  persistReplay();
+  toast("MISSION COMPLETE", "good");
+}
+
+function fmtTime(s) {
+  const m = Math.floor(Math.max(0, s) / 60);
+  const sec = Math.floor(Math.max(0, s) % 60);
+  return `${m}:${sec.toString().padStart(2, "0")}`;
 }
 
 function remember(agent, line) {
@@ -320,42 +418,47 @@ function moodColor(agent) {
   return agent.color;
 }
 
-// ── Speech with range + LOS ─────────────────────────────────
+// ── Speech with spatial range + LOS ─────────────────────────
 function trySay(agent, text) {
   const msg = String(text || "").trim();
   if (!msg) return;
   agent.lastSaid = msg.slice(0, 120);
 
-  // always log to Minecraft chat (observer UI), but agents only "hear" if in range
+  // Observer always sees chat; audio is spatial from listener (human)
   logSpeech(agent.name, agent.lastSaid, agent.cssClass, agent);
 
-  // deliver to others who can hear
-  for (const other of [...agents, world.node, human]) {
+  for (const other of agents) {
     if (other.id === agent.id) continue;
     const d = dist(agent, other);
     if (d > HEAR_RANGE) continue;
-    if (other.kind !== "human" && !hasLOS(world, agent.x, agent.y, other.x, other.y)) continue;
-    if (other.memory) {
-      remember(other, `heard <${agent.name}> ${msg.slice(0, 40)}`);
+    if (!hasLOS(world, agent.x, agent.y, other.x, other.y)) continue;
+    remember(other, `heard <${agent.name}> ${msg.slice(0, 40)}`);
+    // relationship nudge on hearing friendly words
+    if (/thanks|sorry|help|love|hey|hi|friend/i.test(msg)) {
+      bumpRelation("bit_nox", 0.04);
     }
+    if (/hate|shut|dumb|leave/i.test(msg)) {
+      bumpRelation("bit_nox", -0.06);
+    }
+  }
+  // human nearby
+  if (dist(agent, human) < HEAR_RANGE && hasLOS(world, agent.x, agent.y, human.x, human.y)) {
+    const key = agent.id === "bit" ? "bit_you" : "nox_you";
+    if (/hey|you|human|friend/i.test(msg)) bumpRelation(key, 0.05);
   }
   rememberLong(agent, `said: ${msg.slice(0, 50)}`);
 }
 
-// ── Skills / movement intents ───────────────────────────────
+// ── Actions ─────────────────────────────────────────────────
 function setAngle(agent, ang) {
   agent.angle = Math.atan2(Math.sin(ang), Math.cos(ang));
   agent.facing = Math.cos(agent.angle) >= 0 ? 1 : -1;
 }
 
 function issueMove(agent, moveName, steps = 3) {
-  let move = String(moveName || "idle")
-    .toLowerCase()
-    .trim()
-    .replace(/[\s-]+/g, "_");
+  let move = String(moveName || "idle").toLowerCase().trim().replace(/[\s-]+/g, "_");
   if (move === "up") move = "forward";
   if (move === "down") move = "back";
-
   if (!MOVES.has(move)) move = "idle";
 
   const n = Math.max(0, Math.min(8, Number(steps) || 0));
@@ -364,29 +467,38 @@ function issueMove(agent, moveName, steps = 3) {
 
   if (move === "idle" || move === "wait" || n === 0) {
     agent.intent = { vx: 0, vy: 0, remaining: 0, label: "idle", skill: null };
+    agent.moving = false;
     return;
   }
 
   if (move === "turn_left") {
     setAngle(agent, agent.angle - Math.PI / 2);
     agent.intent = { vx: 0, vy: 0, remaining: 0, label: "turn_left", skill: null };
+    spawnParticle(world, agent.x, agent.y, "#aaa", 3);
     return;
   }
   if (move === "turn_right") {
     setAngle(agent, agent.angle + Math.PI / 2);
     agent.intent = { vx: 0, vy: 0, remaining: 0, label: "turn_right", skill: null };
+    spawnParticle(world, agent.x, agent.y, "#aaa", 3);
     return;
   }
 
-  // skill macros — environment executes over time
-  if (move === "orbit_other" || move === "patrol_edge" || move === "follow") {
+  if (
+    move === "orbit_other" ||
+    move === "patrol_edge" ||
+    move === "follow" ||
+    move === "follow_human" ||
+    move === "goto_beacon"
+  ) {
     agent.intent = {
       vx: 0,
       vy: 0,
-      remaining: n * STEP_PX * 1.5,
+      remaining: n * STEP_PX * 1.6,
       label: move,
       skill: move,
     };
+    agent.moving = true;
     return;
   }
 
@@ -401,7 +513,6 @@ function issueMove(agent, moveName, steps = 3) {
     vx = -Math.cos(agent.angle);
     vy = -Math.sin(agent.angle);
   } else if (move === "left") {
-    // strafe
     vx = Math.cos(agent.angle - Math.PI / 2);
     vy = Math.sin(agent.angle - Math.PI / 2);
   } else if (move === "right") {
@@ -432,6 +543,7 @@ function issueMove(agent, moveName, steps = 3) {
   }
 
   agent.intent = { vx, vy, remaining: n * STEP_PX, label: move, skill: null };
+  agent.moving = true;
 }
 
 function applyAct(agent, act) {
@@ -441,6 +553,7 @@ function applyAct(agent, act) {
   if (act === "wave") {
     agent.emote = "wave";
     agent.mood = "wave";
+    spawnParticle(world, agent.x, agent.y - 10, "#ff8", 5);
     setTimeout(() => {
       if (agent.emote === "wave") agent.emote = "none";
     }, 1200);
@@ -448,46 +561,68 @@ function applyAct(agent, act) {
   }
 
   if (act === "grab") {
-    if (agent.holding) return;
+    if (agent.holding) {
+      failFx(agent, "already holding");
+      return;
+    }
     const p = nearestFreePickup(world, agent.x, agent.y, GRAB_RANGE);
     if (p) {
       p.heldBy = agent.id;
       agent.holding = p;
-      sfx.grab();
+      sfx.grab(agent.x, agent.y);
+      sfx.success(agent.x, agent.y);
+      spawnParticle(world, agent.x, agent.y, p.color, 10);
+      spawnFlash(world, agent.x, agent.y, p.color, 36);
       remember(agent, `grabbed ${p.id}`);
       rememberLong(agent, `picked up ${p.id}`);
+      toast(`${agent.name} grabbed ${p.id}`, "good");
       updateQuests();
     } else {
-      agent.envEvents.push("grab failed — nothing in range");
+      failFx(agent, "grab failed — nothing in range");
     }
     return;
   }
 
   if (act === "drop") {
-    if (!agent.holding) return;
+    if (!agent.holding) {
+      failFx(agent, "drop failed — empty hands");
+      return;
+    }
     const p = agent.holding;
     p.heldBy = null;
-    p.x = agent.x + Math.cos(agent.angle) * 20;
-    p.y = agent.y + Math.sin(agent.angle) * 20;
+    p.x = agent.x + Math.cos(agent.angle) * 22;
+    p.y = agent.y + Math.sin(agent.angle) * 22;
     agent.holding = null;
-    sfx.drop();
+    sfx.drop(agent.x, agent.y);
+    spawnParticle(world, p.x, p.y, p.color, 6);
     remember(agent, `dropped ${p.id}`);
+    updateQuests();
     return;
   }
 
   if (act === "use") {
     const prop = nearestProp(world, agent.x, agent.y, 42);
     if (!prop) {
-      agent.envEvents.push("use failed — no prop near");
+      failFx(agent, "use failed — no prop near");
       return;
     }
+    sfx.success(agent.x, agent.y);
+    spawnParticle(world, prop.x, prop.y, "#ff5", 8);
     remember(agent, `used ${prop.id}`);
-    rememberLong(agent, `used ${prop.label} in ${prop.room}`);
+    rememberLong(agent, `used ${prop.label}`);
+    toast(`${agent.name} used ${prop.id}`, "good");
     if (prop.id === "coffee") trySay(agent, "ahh. warm pixels.");
     if (prop.id === "terminal") trySay(agent, "logs look haunted.");
-    if (prop.id === "whiteboard") trySay(agent, "todo: exist.");
+    if (prop.id === "whiteboard") trySay(agent, "todo: steal orbs.");
     if (prop.id === "couch") trySay(agent, "five more minutes…");
   }
+}
+
+function failFx(agent, reason) {
+  agent.envEvents.push(reason);
+  sfx.fail(agent.x, agent.y);
+  spawnFlash(world, agent.x, agent.y, "#f44", 30);
+  spawnParticle(world, agent.x, agent.y, "#f66", 7);
 }
 
 function applyAction(agent, action) {
@@ -498,69 +633,65 @@ function applyAction(agent, action) {
     agent.goal = String(action.goal).slice(0, 80);
     saveMemory();
   }
-  if (action.mood && MOODS.has(String(action.mood))) {
-    agent.mood = String(action.mood);
-  }
+  if (action.mood && MOODS.has(String(action.mood))) agent.mood = String(action.mood);
   if (action.see) agent.lastSaw = String(action.see).slice(0, 120);
   if (typeof action.speed === "number") {
     agent.speedMul = Math.max(0.45, Math.min(1.8, action.speed));
   }
   if (action.look_at) agent.lookAt = String(action.look_at);
 
-  // face look target if specified
   if (agent.lookAt && agent.lookAt !== "none") {
     const t = resolveLookTarget(agent, agent.lookAt);
     if (t) setAngle(agent, Math.atan2(t.y - agent.y, t.x - agent.x));
   }
 
-  const move = action.move != null ? action.move : "idle";
+  // relationship biases movement slightly
+  const rel = relations.bit_nox;
+  let move = action.move != null ? action.move : "idle";
+  if (rel < -0.4 && move === "toward") {
+    // annoyed — sometimes refuse approach
+    if (Math.random() < 0.35) move = "away";
+  }
+  if (rel > 0.5 && move === "away" && Math.random() < 0.3) move = "toward";
+
   const steps = action.steps != null ? action.steps : 3;
   issueMove(agent, move, steps);
-
   if (action.act) applyAct(agent, action.act);
   if (action.emote && action.emote !== "none") {
     agent.emote = String(action.emote);
     if (action.emote === "wave") applyAct(agent, "wave");
   }
-
   if (action.say) trySay(agent, action.say);
 
   remember(
     agent,
     `VLA ${agent.move}×${steps}` +
-      (action.act && action.act !== "none" ? ` act=${action.act}` : "") +
-      (action.say ? ` “${String(action.say).slice(0, 24)}”` : "")
+      (action.act && action.act !== "none" ? ` ${action.act}` : "") +
+      (action.say ? ` “${String(action.say).slice(0, 20)}”` : "")
   );
 }
 
 function resolveLookTarget(agent, ref) {
   const r = String(ref).toLowerCase();
-  if (r === "other" || r === "bit" || r === "nox") {
-    if (r === "bit") return bit;
-    if (r === "nox") return nox;
-    return agent === bit ? nox : bit;
-  }
+  if (r === "other") return agent === bit ? nox : bit;
+  if (r === "bit") return bit;
+  if (r === "nox") return nox;
   if (r === "human" || r === "you") return human;
   if (r === "node") return world.node;
-  if (r.startsWith("prop:")) {
-    const id = r.slice(5);
-    return world.props.find((p) => p.id === id) || null;
-  }
-  const prop = world.props.find((p) => p.id === r || p.type === r);
-  return prop || null;
+  if (r === "beacon" && world.beacon) return world.beacon;
+  if (r.startsWith("prop:")) return world.props.find((p) => p.id === r.slice(5)) || null;
+  return world.props.find((p) => p.id === r) || null;
 }
 
 function parseAction(raw) {
-  if (!raw) return { move: "idle", steps: 0, say: "", act: "none" };
+  if (!raw) return null;
   let t = raw.trim();
   const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/i);
   if (fence) t = fence[1].trim();
-  // take last JSON object if model rambled
   const all = t.match(/\{[\s\S]*?\}/g);
   if (all) t = all[all.length - 1];
   try {
     const obj = JSON.parse(t);
-    // constrain
     if (obj.move != null) {
       let m = String(obj.move).toLowerCase().replace(/\s+/g, "_");
       if (!MOVES.has(m)) m = "idle";
@@ -572,58 +703,48 @@ function parseAction(raw) {
     if (obj.say != null) obj.say = String(obj.say).slice(0, 80);
     return obj;
   } catch {
-    const lower = raw.toLowerCase();
-    let move = "idle";
-    for (const m of MOVES) {
-      if (lower.includes(m.replace("_", " ")) || lower.includes(m)) {
-        move = m;
-        break;
-      }
-    }
-    return { move, steps: 3, say: "", act: "none", see: "parse-fallback" };
+    return null;
   }
 }
 
-// ── VLA prompt + inference ──────────────────────────────────
-function buildPrompt(agent) {
-  const other = agent === bit ? nox : bit;
-  const room = roomAt(world, agent.x, agent.y);
-  const dOther = Math.round(dist(agent, other));
-  const dHuman = Math.round(dist(agent, human));
-  const dNode = Math.round(dist(agent, world.node));
-  const events = agent.envEvents.length ? agent.envEvents.join("; ") : "none";
-  agent.envEvents = [];
+/** Repair pass: extract move keywords if JSON failed */
+function repairAction(raw, agent) {
+  const lower = String(raw || "").toLowerCase();
+  let move = "idle";
+  for (const m of [
+    "goto_beacon", "follow_human", "orbit_other", "patrol_edge", "follow",
+    "toward", "away", "turn_left", "turn_right", "forward", "back", "left", "right",
+  ]) {
+    if (lower.includes(m.replace("_", " ")) || lower.includes(m)) {
+      move = m;
+      break;
+    }
+  }
+  let act = "none";
+  if (lower.includes("grab") || lower.includes("pick")) act = "grab";
+  else if (lower.includes("drop")) act = "drop";
+  else if (lower.includes("use") || lower.includes("coffee")) act = "use";
+  else if (lower.includes("wave")) act = "wave";
 
-  const heard = agent.memory.filter((m) => m.startsWith("heard")).slice(-3);
-  const chat = transcript
-    .slice(-5)
-    .map((m) => `<${m.name}> ${m.text}`)
-    .join(" | ");
+  // if orb visible and free, bias grab
+  const truth = visibleTruth(world, agent, othersFor(agent));
+  if (truth.orbs.length && !agent.holding && act === "none" && Math.random() < 0.5) {
+    act = "grab";
+    move = "forward";
+  }
 
-  const nearProp = nearestProp(world, agent.x, agent.y, 50);
-  const nearOrb = nearestFreePickup(world, agent.x, agent.y, 50);
-
-  return (
-    `You are ${agent.name} (${agent.persona}). This image is your EGOCENTRIC camera (you face up; yellow YOU). ` +
-    `Dark areas are outside your FOV or blocked. Top strips = recent frames.\n` +
-    `WORLD: rooms Lobby/Lab/Den/Yard, walls, props, glowing orbs, orange Node, green You(human cursor).\n` +
-    `STATE: room=${room?.name || "?"} pos=(${Math.round(agent.x)},${Math.round(agent.y)}) ` +
-    `hold=${agent.holding?.id || "none"} goal="${agent.goal}"\n` +
-    `DIST: ${other.name}=${dOther}px human=${dHuman}px Node=${dNode}px ` +
-    `prop=${nearProp ? nearProp.id : "-"} orb=${nearOrb ? nearOrb.id : "-"}\n` +
-    `EVENTS: ${events}\n` +
-    `MEMORY: ${agent.memory.slice(-4).join(" / ") || "—"}\n` +
-    `LONG: ${agent.longTerm.slice(-3).join(" / ") || "—"}\n` +
-    `HEARD: ${heard.join(" / ") || "—"}\n` +
-    `CHAT: ${chat || "silence"}\n` +
-    `Look at the image. Choose ONE action. ONLY JSON (no markdown):\n` +
-    `{"see":"what you see","move":"forward|back|left|right|turn_left|turn_right|toward|away|orbit_other|patrol_edge|follow|idle","steps":1-6,"act":"none|grab|drop|use|wave","look_at":"other|human|node|prop:coffee|none","say":"max 12 words or empty","mood":"idle|think|happy|curious","goal":"short"}`
-  );
+  return {
+    see: "repair",
+    move,
+    steps: 3,
+    act,
+    say: "",
+    mood: "curious",
+  };
 }
 
-async function vlaInfer(agent) {
-  // build others list for camera
-  const others = [
+function othersFor(agent) {
+  return [
     agent === bit ? nox : bit,
     human,
     {
@@ -635,6 +756,95 @@ async function vlaInfer(agent) {
       color: world.node.color,
     },
   ];
+}
+
+// ── VLA ─────────────────────────────────────────────────────
+function buildPrompt(agent, truthStr) {
+  const other = agent === bit ? nox : bit;
+  const room = roomAt(world, agent.x, agent.y);
+  const dOther = Math.round(dist(agent, other));
+  const dHuman = Math.round(dist(agent, human));
+  const events = agent.envEvents.length ? agent.envEvents.join("; ") : "none";
+  agent.envEvents = [];
+  const chat = transcript.slice(-4).map((m) => `<${m.name}> ${m.text}`).join(" | ");
+  const rel = relations.bit_nox;
+  const nearOrb = nearestFreePickup(world, agent.x, agent.y, 80);
+  const nearProp = nearestProp(world, agent.x, agent.y, 50);
+
+  return (
+    `You are ${agent.name}. EGOCENTRIC camera: yellow YOU faces up; labels are BIG. Mission: collect orbs with partner before timer ends.\n` +
+    `GROUND TRUTH (use this + image): ${truthStr}\n` +
+    `STATE room=${room?.name} hold=${agent.holding?.id || "none"} goal="${agent.goal}" rel_partner=${rel.toFixed(2)}\n` +
+    `DIST ${other.name}=${dOther} you=${dHuman} orb=${nearOrb ? nearOrb.id + "@" + Math.round(dist(agent, nearOrb)) : "-"} prop=${nearProp?.id || "-"}\n` +
+    `BEACON=${world.beacon ? `${Math.round(world.beacon.x)},${Math.round(world.beacon.y)}` : "none"} CALL=${callPulse > 0 ? "human calling" : "no"}\n` +
+    `EVENTS: ${events}\nMEM: ${agent.memory.slice(-3).join(" / ") || "—"}\nLONG: ${agent.longTerm.slice(-2).join(" / ") || "—"}\nCHAT: ${chat || "silence"}\n` +
+    `Reply ONLY JSON:\n` +
+    `{"see":"match ground truth briefly","move":"forward|back|left|right|turn_left|turn_right|toward|away|orbit_other|follow|follow_human|goto_beacon|patrol_edge|idle","steps":1-6,"act":"none|grab|drop|use|wave","look_at":"other|human|beacon|prop:coffee|none","say":"max 10 words or empty","mood":"idle|think|happy|curious","goal":"short"}`
+  );
+}
+
+async function remoteVlmInfer(dataUrl, prompt) {
+  const cfg = window.HANGOUT_VLM;
+  if (!cfg?.baseUrl || !cfg?.apiKey) return null;
+  const modelName = cfg.model || "grok-2-vision-1212";
+  const url = cfg.baseUrl.replace(/\/$/, "") + "/chat/completions";
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${cfg.apiKey}`,
+    },
+    body: JSON.stringify({
+      model: modelName,
+      max_tokens: 150,
+      temperature: 0.5,
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "image_url", image_url: { url: dataUrl } },
+            { type: "text", text: prompt },
+          ],
+        },
+      ],
+    }),
+  });
+  if (!res.ok) throw new Error(`remote VLM ${res.status}`);
+  const data = await res.json();
+  return data.choices?.[0]?.message?.content || "";
+}
+
+async function localVlmInfer(dataUrl, prompt) {
+  const image = await RawImage.fromURL(dataUrl);
+  const messages = [
+    {
+      role: "user",
+      content: [
+        { type: "image" },
+        { type: "text", text: prompt },
+      ],
+    },
+  ];
+  const text = processor.apply_chat_template(messages, { add_generation_prompt: true });
+  const inputs = await processor(text, [image], {});
+  const outputs = await model.generate({
+    ...inputs,
+    max_new_tokens: 100,
+    do_sample: true,
+    temperature: 0.45,
+    top_p: 0.9,
+  });
+  const decoded = processor.batch_decode(outputs, { skip_special_tokens: true });
+  let raw = decoded[0] || "";
+  if (raw.includes("Assistant:")) raw = raw.split("Assistant:").pop();
+  return raw.trim();
+}
+
+async function vlaInfer(agent) {
+  const others = othersFor(agent);
+  const truth = visibleTruth(world, agent, others);
+  const truthStr = truthToString(truth);
+  agent.lastTruth = truthStr;
 
   const dataUrl = captureEgocentric(
     visionCanvas,
@@ -644,33 +854,48 @@ async function vlaInfer(agent) {
     agent.frameHistory
   );
   await pushFrameHistory(agent.frameHistory, dataUrl, 3);
-  visionMeta.textContent = `VLA eye · ${agent.name} · ${modelId.split("/").pop()}`;
+  visionMeta.textContent = `VLA · ${agent.name} · seeScore ${(agent.seeScore * 100) | 0}%`;
 
-  // Frame history is already composited as strips on the egocentric image
-  // (multi-frame in one bitmap — reliable for small VLMs).
-  const image = await RawImage.fromURL(dataUrl);
-  const content = [{ type: "image" }, { type: "text", text: buildPrompt(agent) }];
+  const prompt = buildPrompt(agent, truthStr);
 
-  const messages = [{ role: "user", content }];
-  const text = processor.apply_chat_template(messages, { add_generation_prompt: true });
-  const inputs = await processor(text, [image], {});
+  let raw = "";
+  let action = null;
 
-  const outputs = await model.generate({
-    ...inputs,
-    max_new_tokens: 120,
-    do_sample: true,
-    temperature: 0.6,
-    top_p: 0.9,
-  });
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      raw = "";
+      if (window.HANGOUT_VLM?.apiKey) {
+        raw = (await remoteVlmInfer(dataUrl, prompt)) || "";
+      }
+      if (!raw && processor && model && !model.remoteOnly) {
+        raw = await localVlmInfer(dataUrl, prompt);
+      }
+      if (!raw) throw new Error("no VLM response");
+    } catch (err) {
+      if (attempt === MAX_RETRIES) throw err;
+      continue;
+    }
 
-  const decoded = processor.batch_decode(outputs, { skip_special_tokens: true });
-  let raw = decoded[0] || "";
-  const asst = raw.includes("Assistant:") ? raw.split("Assistant:").pop() : raw;
-  agent.lastRaw = asst.trim().slice(0, 400);
-  return asst.trim();
+    agent.lastRaw = raw.slice(0, 400);
+    action = parseAction(raw);
+    if (action) break;
+  }
+
+  if (!action) {
+    action = repairAction(raw, agent);
+    agent.lastRaw = (raw || "") + " [repaired]";
+  }
+
+  agent.seeScore = scoreSee(action.see, truth);
+  if (agent.seeScore < 0.25 && truth.entities.length) {
+    // inject truth into see for memory honesty
+    action.see = (action.see || "") + " | truth:" + truthStr.slice(0, 60);
+  }
+
+  return action;
 }
 
-// ── Motor simulation ────────────────────────────────────────
+// ── Motor ───────────────────────────────────────────────────
 function skillStep(agent, dt) {
   const intent = agent.intent;
   if (!intent?.skill) return false;
@@ -678,25 +903,41 @@ function skillStep(agent, dt) {
   const other = agent === bit ? nox : bit;
   let tx = agent.x;
   let ty = agent.y;
+  const sp = MOVE_SPEED * agent.speedMul * dt;
 
   if (intent.skill === "orbit_other") {
-    const ang = Math.atan2(agent.y - other.y, agent.x - other.x) + dt * 1.6;
-    const rad = 70;
-    tx = other.x + Math.cos(ang) * rad;
-    ty = other.y + Math.sin(ang) * rad;
+    const ang = Math.atan2(agent.y - other.y, agent.x - other.x) + dt * 1.7;
+    tx = other.x + Math.cos(ang) * 70;
+    ty = other.y + Math.sin(ang) * 70;
     setAngle(agent, Math.atan2(other.y - agent.y, other.x - agent.x));
   } else if (intent.skill === "follow") {
     const dx = other.x - agent.x;
     const dy = other.y - agent.y;
     const L = Math.hypot(dx, dy) || 1;
-    if (L > 50) {
-      tx = agent.x + (dx / L) * MOVE_SPEED * agent.speedMul * dt;
-      ty = agent.y + (dy / L) * MOVE_SPEED * agent.speedMul * dt;
+    if (L > 48) {
+      tx = agent.x + (dx / L) * sp;
+      ty = agent.y + (dy / L) * sp;
+    }
+    setAngle(agent, Math.atan2(dy, dx));
+  } else if (intent.skill === "follow_human") {
+    const dx = human.x - agent.x;
+    const dy = human.y - agent.y;
+    const L = Math.hypot(dx, dy) || 1;
+    if (L > 40) {
+      tx = agent.x + (dx / L) * sp;
+      ty = agent.y + (dy / L) * sp;
+    }
+    setAngle(agent, Math.atan2(dy, dx));
+  } else if (intent.skill === "goto_beacon" && world.beacon) {
+    const dx = world.beacon.x - agent.x;
+    const dy = world.beacon.y - agent.y;
+    const L = Math.hypot(dx, dy) || 1;
+    if (L > 20) {
+      tx = agent.x + (dx / L) * sp;
+      ty = agent.y + (dy / L) * sp;
     }
     setAngle(agent, Math.atan2(dy, dx));
   } else if (intent.skill === "patrol_edge") {
-    // bounce along nearest outer-ish path
-    const sp = MOVE_SPEED * 0.9 * agent.speedMul * dt;
     if (!intent._pvx) {
       intent._pvx = 1;
       intent._pvy = 0;
@@ -704,22 +945,21 @@ function skillStep(agent, dt) {
     tx = agent.x + intent._pvx * sp;
     ty = agent.y + intent._pvy * sp;
     setAngle(agent, Math.atan2(intent._pvy, intent._pvx));
+  } else {
+    return false;
   }
 
   const res = moveWithCollision(world, agent.x, agent.y, tx, ty, 14);
-  if (res.hit && intent.skill === "patrol_edge") {
-    // rotate patrol direction
-    const dirs = [
-      [1, 0],
-      [0, 1],
-      [-1, 0],
-      [0, -1],
-    ];
-    const pick = dirs[Math.floor(Math.random() * 4)];
-    intent._pvx = pick[0];
-    intent._pvy = pick[1];
-    sfx.bump();
-    agent.envEvents.push(`patrol hit ${res.hit}`);
+  if (res.hit) {
+    sfx.bump(agent.x, agent.y);
+    spawnFlash(world, agent.x, agent.y, "#f84", 22);
+    agent.envEvents.push(`blocked:${res.hit}`);
+    if (intent.skill === "patrol_edge") {
+      const dirs = [[1, 0], [0, 1], [-1, 0], [0, -1]];
+      const pick = dirs[Math.floor(Math.random() * 4)];
+      intent._pvx = pick[0];
+      intent._pvy = pick[1];
+    }
   }
   agent.x = res.x;
   agent.y = res.y;
@@ -727,11 +967,14 @@ function skillStep(agent, dt) {
     agent.holding.x = agent.x;
     agent.holding.y = agent.y;
   }
+  agent.walkPhase += dt * 14;
+  agent.moving = true;
 
   intent.remaining = Math.max(0, intent.remaining - MOVE_SPEED * dt);
   if (intent.remaining <= 0) {
     agent.intent = { vx: 0, vy: 0, remaining: 0, label: "idle", skill: null };
     agent.move = "idle";
+    agent.moving = false;
     agent.envEvents.push("skill finished");
   }
   return true;
@@ -739,15 +982,15 @@ function skillStep(agent, dt) {
 
 function simulateAgent(agent, dt) {
   if (skillStep(agent, dt)) {
-    if (performance.now() - lastStepSfx > 180) {
-      sfx.step();
-      lastStepSfx = performance.now();
-    }
+    maybeStepSfx(agent);
     return;
   }
 
   const intent = agent.intent;
-  if (!intent || intent.remaining <= 0 || (intent.vx === 0 && intent.vy === 0)) return;
+  if (!intent || intent.remaining <= 0 || (intent.vx === 0 && intent.vy === 0)) {
+    agent.moving = false;
+    return;
+  }
 
   const sp = MOVE_SPEED * agent.speedMul;
   const step = Math.min(intent.remaining, sp * dt);
@@ -755,18 +998,15 @@ function simulateAgent(agent, dt) {
   const ny = agent.y + intent.vy * step;
   const res = moveWithCollision(world, agent.x, agent.y, nx, ny, 14);
 
-  // agent-agent soft separation
-  const other = agent === bit ? nox : bit;
   let fx = res.x;
   let fy = res.y;
+  const other = agent === bit ? nox : bit;
   const d = Math.hypot(fx - other.x, fy - other.y);
   if (d < 28 && d > 0.01) {
     const push = (28 - d) / d;
     fx += (fx - other.x) * push * 0.5;
     fy += (fy - other.y) * push * 0.5;
   }
-
-  // human soft body
   const dh = Math.hypot(fx - human.x, fy - human.y);
   if (dh < 26 && dh > 0.01) {
     const push = (26 - dh) / dh;
@@ -776,15 +1016,22 @@ function simulateAgent(agent, dt) {
 
   if (res.hit) {
     agent.envEvents.push(`blocked:${res.hit}`);
-    sfx.bump();
+    sfx.bump(agent.x, agent.y);
+    spawnFlash(world, agent.x, agent.y, "#f84", 24);
+    spawnParticle(world, agent.x, agent.y, "#fa6", 5);
     agent.intent = { vx: 0, vy: 0, remaining: 0, label: "idle", skill: null };
     agent.move = "idle";
+    agent.moving = false;
   } else {
     intent.remaining = Math.max(0, intent.remaining - step);
     if (intent.remaining <= 0) {
       agent.intent = { vx: 0, vy: 0, remaining: 0, label: "idle", skill: null };
       agent.move = "idle";
+      agent.moving = false;
       agent.envEvents.push("finished steps");
+    } else {
+      agent.moving = true;
+      agent.walkPhase += dt * 14;
     }
   }
 
@@ -794,24 +1041,23 @@ function simulateAgent(agent, dt) {
     agent.holding.x = agent.x;
     agent.holding.y = agent.y;
   }
+  maybeStepSfx(agent);
+}
 
-  if (performance.now() - lastStepSfx > 200) {
-    sfx.step();
-    lastStepSfx = performance.now();
+function maybeStepSfx(agent) {
+  const now = performance.now();
+  if (now - (lastStepSfx[agent.id] || 0) > 190) {
+    // mute footsteps if no LOS to human (spatial + occlusion)
+    const muted = !hasLOS(world, agent.x, agent.y, human.x, human.y);
+    sfx.step(agent.x, agent.y, muted);
+    lastStepSfx[agent.id] = now;
   }
 }
 
-// ── Node ambient NPC ────────────────────────────────────────
 function tickNode(dt) {
   const n = world.node;
   n.phase += dt;
-  // patrol yard
-  const path = [
-    [700, 450],
-    [850, 420],
-    [820, 520],
-    [680, 500],
-  ];
+  const path = [[700, 450], [850, 420], [820, 520], [680, 500]];
   const idx = Math.floor(n.phase / 3) % path.length;
   const [tx, ty] = path[idx];
   const dx = tx - n.x;
@@ -820,38 +1066,21 @@ function tickNode(dt) {
   n.x += (dx / L) * 40 * dt;
   n.y += (dy / L) * 40 * dt;
 
-  // rare ambient line if someone nearby
-  if (Math.random() < 0.002) {
-    const near = agents.find((a) => dist(a, n) < 100);
+  if (Math.random() < 0.0015) {
+    const near = agents.some((a) => dist(a, n) < 110);
     if (near) {
-      const lines = ["query: status?", "do not unplug me", "yard is quiet", "orb detected"];
+      const lines = ["orb heist active", "timer ticking", "do not unplug", "yard clear"];
       const msg = lines[Math.floor(Math.random() * lines.length)];
       n.lastSaid = msg;
       logSpeech("Node", msg, "node", n);
-      for (const a of agents) {
-        if (dist(a, n) < HEAR_RANGE && hasLOS(world, a.x, a.y, n.x, n.y)) {
-          remember(a, `heard <Node> ${msg}`);
-        }
-      }
     }
   }
 }
 
-// ── Render entities list ────────────────────────────────────
 function entityList() {
   return [
-    {
-      ...bit,
-      moodColor: moodColor(bit),
-      showFov: debugOn,
-      fovRad: Math.PI * 0.55,
-    },
-    {
-      ...nox,
-      moodColor: moodColor(nox),
-      showFov: debugOn,
-      fovRad: Math.PI * 0.55,
-    },
+    { ...bit, moodColor: moodColor(bit), showFov: debugOn, fovRad: Math.PI * 0.55 },
+    { ...nox, moodColor: moodColor(nox), showFov: debugOn, fovRad: Math.PI * 0.55 },
     {
       id: "node",
       name: "Node",
@@ -864,8 +1093,63 @@ function entityList() {
   ];
 }
 
+function sampleReplay() {
+  if (replayPlaying) return;
+  if (replayLog.length > 4000) replayLog.shift();
+  replayLog.push({
+    t: world.time,
+    bit: { x: bit.x, y: bit.y, a: bit.angle, m: bit.move, h: bit.holding?.id || null },
+    nox: { x: nox.x, y: nox.y, a: nox.angle, m: nox.move, h: nox.holding?.id || null },
+    human: { x: human.x, y: human.y },
+  });
+}
+
+function persistReplay() {
+  try {
+    localStorage.setItem(REPLAY_KEY, JSON.stringify(replayLog.slice(-1500)));
+  } catch {
+    /* */
+  }
+}
+
+async function playReplay() {
+  let data;
+  try {
+    data = JSON.parse(localStorage.getItem(REPLAY_KEY) || "[]");
+  } catch {
+    data = [];
+  }
+  if (!data.length) {
+    toast("No replay saved yet", "bad");
+    return;
+  }
+  toast(`Replaying ${data.length} frames…`);
+  replayPlaying = true;
+  running = false;
+  for (const frame of data) {
+    bit.x = frame.bit.x;
+    bit.y = frame.bit.y;
+    bit.angle = frame.bit.a;
+    bit.move = frame.bit.m;
+    nox.x = frame.nox.x;
+    nox.y = frame.nox.y;
+    nox.angle = frame.nox.a;
+    nox.move = frame.nox.m;
+    human.x = frame.human.x;
+    human.y = frame.human.y;
+    paint();
+    await new Promise((r) => setTimeout(r, 40));
+  }
+  replayPlaying = false;
+  if (!won) running = true;
+  toast("Replay done", "good");
+}
+
 function paint() {
   drawWorld(wctx, worldCanvas, world, entityList(), {});
+  // minimap in its own canvas
+  mctx.clearRect(0, 0, minimapCanvas.width, minimapCanvas.height);
+  drawMinimap(mctx, 0, 0, minimapCanvas.width, minimapCanvas.height, world, entityList());
   updateDebug();
 }
 
@@ -873,16 +1157,16 @@ function updateDebug() {
   if (!debugOn) return;
   const a = bit.ticks >= nox.ticks ? bit : nox;
   dbgBody.textContent = [
-    `model: ${modelId || "—"}`,
-    `Bit (${Math.round(bit.x)},${Math.round(bit.y)}) ${roomAt(world, bit.x, bit.y)?.name} move=${bit.move} hold=${bit.holding?.id || "-"}`,
-    `Nox (${Math.round(nox.x)},${Math.round(nox.y)}) ${roomAt(world, nox.x, nox.y)?.name} move=${nox.move} hold=${nox.holding?.id || "-"}`,
-    `Human (${Math.round(human.x)},${Math.round(human.y)})`,
-    `Node (${Math.round(world.node.x)},${Math.round(world.node.y)})`,
-    `last see[${a.name}]: ${a.lastSaw || "—"}`,
-    `last raw: ${a.lastRaw || "—"}`,
+    `model: ${modelId || (window.HANGOUT_VLM ? "remote+local" : "—")}`,
+    `time: ${fmtTime(scenarioLeft)} world.t=${world.time.toFixed(1)}`,
+    `Bit (${Math.round(bit.x)},${Math.round(bit.y)}) ${roomAt(world, bit.x, bit.y)?.name} ${bit.move} hold=${bit.holding?.id || "-"} see=${(bit.seeScore * 100) | 0}%`,
+    `Nox (${Math.round(nox.x)},${Math.round(nox.y)}) ${roomAt(world, nox.x, nox.y)?.name} ${nox.move} hold=${nox.holding?.id || "-"} see=${(nox.seeScore * 100) | 0}%`,
+    `truth[${a.name}]: ${a.lastTruth || "—"}`,
+    `see[${a.name}]: ${a.lastSaw || "—"}`,
+    `raw: ${a.lastRaw || "—"}`,
     `action: ${JSON.stringify(a.lastAction || {})}`,
-    `events: ${a.envEvents.join("; ") || "—"}`,
-    `quests: ${quests.map((q) => `${q.id}:${q.progress}/${q.target}${q.done ? "✓" : ""}`).join(" ")}`,
+    `rel: ${JSON.stringify(relations)}`,
+    `replay frames: ${replayLog.length}`,
   ].join("\n");
 }
 
@@ -892,16 +1176,37 @@ function motorLoop(now) {
   lastMotor = now;
   world.time += dt;
 
-  if (running) {
+  if (running && !won) {
+    scenarioLeft -= dt;
+    scenarioTimerEl.textContent = fmtTime(scenarioLeft);
+    scenarioTimerEl.classList.toggle("urgent", scenarioLeft < 30);
+    if (scenarioLeft <= 0) {
+      scenarioLeft = 0;
+      running = false;
+      toast("Time up — mission failed", "bad");
+      winText.textContent = "Time expired. The orbs remain scattered.";
+      winStats.textContent = `Held ${world.pickups.filter((p) => p.heldBy).length}/3 orbs`;
+      winModal.classList.remove("hidden");
+      persistReplay();
+    }
+
+    if (callPulse > 0) callPulse -= dt;
+
     for (const a of agents) simulateAgent(a, dt);
     tickNode(dt);
+    tickFX(world, dt);
+    setListener(human.x, human.y);
+    if (Math.floor(world.time * 4) !== Math.floor((world.time - dt) * 4)) {
+      sampleReplay();
+    }
     updateQuests();
   }
+
   paint();
   requestAnimationFrame(motorLoop);
 }
 
-function waitIdle(agent, maxMs = 2000) {
+function waitIdle(agent, maxMs = 1600) {
   const t0 = performance.now();
   return new Promise((resolve) => {
     (function check() {
@@ -913,37 +1218,60 @@ function waitIdle(agent, maxMs = 2000) {
   });
 }
 
+function shouldSkipAgent(agent) {
+  // performance: skip some idle thinking if nothing nearby changed
+  if (agent.moving) return false;
+  if (agent.envEvents.length) return false;
+  if (callPulse > 0) return false;
+  if (world.beacon) return false;
+  if (agent.idleTicks < 1) return false;
+  return Math.random() < IDLE_SKIP_CHANCE;
+}
+
 async function think(agent) {
-  if (!model || !running) return;
-  await waitIdle(agent, 1800);
+  if (!model || !running || won) return;
+
+  // hold Q → bias agents toward human
+  if (keys.q) {
+    callPulse = 1.2;
+    agent.envEvents.push("human is calling — consider follow_human");
+  }
+
+  if (shouldSkipAgent(agent)) {
+    agent.idleTicks += 1;
+    return;
+  }
+
+  await waitIdle(agent, 1400);
   agent.ticks += 1;
+  agent.idleTicks = 0;
   agent.mood = "think";
-  setStatus(`${agent.name} · VLA seeing…`, "warn");
+  setStatus(`${agent.name} · VLA…`, "warn");
 
   try {
-    const raw = await vlaInfer(agent);
-    const action = parseAction(raw);
-    if (running) applyAction(agent, action);
+    const action = await vlaInfer(agent);
+    if (running && !won) applyAction(agent, action);
     setStatus(
-      `${agent.name} · ${(action.see || "").toString().slice(0, 32)} · ${agent.move}` +
+      `${agent.name} · see${((agent.seeScore * 100) | 0)}% · ${agent.move}` +
         (action.act && action.act !== "none" ? ` · ${action.act}` : ""),
       ""
     );
     setTimeout(() => {
-      statusEl.style.opacity = "0.35";
-    }, 2500);
+      statusEl.style.opacity = "0.4";
+    }, 2000);
   } catch (err) {
     console.error(agent.name, err);
-    agent.envEvents.push("vla error — held pose");
-    setStatus(`${agent.name} glitch: ${err.message || err}`, "warn");
+    agent.envEvents.push("vla error");
+    setStatus(`${agent.name}: ${err.message || err}`, "warn");
   }
 }
 
 async function vlaLoop() {
+  // Shared scene cadence: alternate agents, skip idles
   let i = 0;
-  while (running) {
-    if (!model) {
-      await new Promise((r) => setTimeout(r, 500));
+  while (true) {
+    if (!model || !running || won) {
+      await new Promise((r) => setTimeout(r, 400));
       continue;
     }
     await think(agents[i % agents.length]);
@@ -952,58 +1280,99 @@ async function vlaLoop() {
   }
 }
 
-// ── Boot model ──────────────────────────────────────────────
+// ── Boot ────────────────────────────────────────────────────
 async function boot() {
   if (model) return;
-  if (!navigator.gpu) {
-    setStatus("WebGPU required (Chrome/Edge) — click to retry", "err");
+  if (!navigator.gpu && !window.HANGOUT_VLM?.apiKey) {
+    setStatus("WebGPU or window.HANGOUT_VLM required — click retry", "err");
     return;
   }
 
   progressEl.style.display = "block";
   progressBar.style.width = "0%";
-  setStatus("loading VLM…", "warn");
 
-  let lastErr = null;
-  for (const id of MODEL_CANDIDATES) {
-    try {
-      setStatus(`loading ${id.split("/").pop()}…`, "warn");
-      processor = await AutoProcessor.from_pretrained(id, {
-        progress_callback: (p) => {
-          if (p?.progress != null) {
-            progressBar.style.width = `${Math.round(p.progress * 40)}%`;
-          }
-        },
-      });
-      model = await AutoModelForVision2Seq.from_pretrained(id, {
-        dtype: "fp32",
-        device: "webgpu",
-        progress_callback: (p) => {
-          if (p?.progress != null) {
-            progressBar.style.width = `${40 + Math.round(p.progress * 60)}%`;
-          }
-        },
-      });
-      modelId = id;
-      progressBar.style.width = "100%";
-      setTimeout(() => {
-        progressEl.style.display = "none";
-      }, 400);
-      sfx.boot();
-      trySay(bit, "cameras online…");
-      trySay(nox, "great. company with eyes.");
-      setStatus(`VLA online · ${id.split("/").pop()}`, "");
+  // Prefer remote if configured
+  if (window.HANGOUT_VLM?.apiKey) {
+    setStatus("using remote VLM (+ local fallback)…", "warn");
+  }
+
+  if (navigator.gpu) {
+    let lastErr = null;
+    for (const id of MODEL_CANDIDATES) {
+      try {
+        setStatus(`loading ${id.split("/").pop()}…`, "warn");
+        processor = await AutoProcessor.from_pretrained(id, {
+          progress_callback: (p) => {
+            if (p?.progress != null) progressBar.style.width = `${Math.round(p.progress * 40)}%`;
+          },
+        });
+        model = await AutoModelForVision2Seq.from_pretrained(id, {
+          dtype: "fp32",
+          device: "webgpu",
+          progress_callback: (p) => {
+            if (p?.progress != null) {
+              progressBar.style.width = `${40 + Math.round(p.progress * 60)}%`;
+            }
+          },
+        });
+        modelId = id;
+        break;
+      } catch (err) {
+        console.warn(id, err);
+        lastErr = err;
+        processor = null;
+        model = null;
+      }
+    }
+    if (!model && !window.HANGOUT_VLM?.apiKey) {
+      progressEl.style.display = "none";
+      setStatus(`load failed — click retry (${lastErr?.message || "err"})`, "err");
       return;
-    } catch (err) {
-      console.warn("model fail", id, err);
-      lastErr = err;
-      processor = null;
-      model = null;
     }
   }
 
-  progressEl.style.display = "none";
-  setStatus(`VLA load failed — click retry (${lastErr?.message || "err"})`, "err");
+  // stub model flag for remote-only
+  if (!model && window.HANGOUT_VLM?.apiKey) {
+    model = { remoteOnly: true };
+    modelId = "remote:" + (window.HANGOUT_VLM.model || "vlm");
+  }
+
+  progressBar.style.width = "100%";
+  setTimeout(() => {
+    progressEl.style.display = "none";
+  }, 400);
+  sfx.boot();
+  trySay(bit, "mission clock is live.");
+  trySay(nox, "three orbs. try keep up.");
+  toast("Mission: Orb Heist — 3:00", "good");
+  setStatus(`VLA online · ${modelId.split("/").pop()}`, "");
+}
+
+function resetGame() {
+  world = createWorld();
+  bit.x = 160;
+  bit.y = 180;
+  bit.angle = 0;
+  bit.holding = null;
+  bit.intent = { vx: 0, vy: 0, remaining: 0, label: "idle", skill: null };
+  bit.memory = [];
+  nox.x = 780;
+  nox.y = 180;
+  nox.angle = Math.PI;
+  nox.holding = null;
+  nox.intent = { vx: 0, vy: 0, remaining: 0, label: "idle", skill: null };
+  nox.memory = [];
+  for (const q of quests) {
+    q.progress = 0;
+    q.done = false;
+  }
+  scenarioLeft = SCENARIO_SECS;
+  won = false;
+  running = true;
+  replayLog.length = 0;
+  winModal.classList.add("hidden");
+  toast("New heist started", "good");
+  renderGoals();
 }
 
 // ── Input ───────────────────────────────────────────────────
@@ -1017,29 +1386,68 @@ worldCanvas.addEventListener("mousemove", (e) => {
 
 worldCanvas.addEventListener("click", () => {
   unlockAudio();
-  // optional: you wave at them
   logSpeech("You", "hey.", "you", human);
   for (const a of agents) {
-    if (dist(a, human) < HEAR_RANGE) remember(a, "heard <You> hey.");
+    if (dist(a, human) < HEAR_RANGE) {
+      remember(a, "heard <You> hey.");
+      const key = a.id === "bit" ? "bit_you" : "nox_you";
+      bumpRelation(key, 0.03);
+    }
   }
 });
 
 window.addEventListener("keydown", (e) => {
+  unlockAudio();
   if (e.key === "d" || e.key === "D") {
     debugOn = !debugOn;
     debugEl.classList.toggle("hidden", !debugOn);
   }
+  if (e.key === "r" || e.key === "R") {
+    playReplay();
+  }
+  if (e.key === "q" || e.key === "Q") {
+    keys.q = true;
+    callPulse = 1.5;
+    sfx.call(human.x, human.y);
+    toast("Calling agents…", "good");
+    for (const a of agents) {
+      a.envEvents.push("human CALL — use follow_human");
+      // soft auto-bias
+      if (Math.random() < 0.5) issueMove(a, "follow_human", 5);
+    }
+  }
+  if (e.key === "e" || e.key === "E") {
+    world.beacon = { x: human.x, y: human.y, t: 20 };
+    sfx.beacon(human.x, human.y);
+    spawnFlash(world, human.x, human.y, "#0f0", 40);
+    toast("Beacon planted", "good");
+    for (const a of agents) a.envEvents.push("beacon placed — consider goto_beacon");
+  }
+});
+
+window.addEventListener("keyup", (e) => {
+  if (e.key === "q" || e.key === "Q") keys.q = false;
 });
 
 statusEl.addEventListener("click", () => {
   if (statusEl.classList.contains("err")) boot();
 });
 
+winAgain.addEventListener("click", () => resetGame());
+
 // ── Start ───────────────────────────────────────────────────
 renderGoals();
+renderRelations();
 paint();
 requestAnimationFrame(motorLoop);
 boot().then(() => vlaLoop());
-
-// resize paint
 window.addEventListener("resize", () => paint());
+
+// expose helpers
+window.hangout = {
+  relations,
+  quests,
+  agents: () => agents,
+  replay: playReplay,
+  reset: resetGame,
+};

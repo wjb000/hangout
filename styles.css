@@ -22,8 +22,8 @@ html, body {
   position: fixed;
   right: 12px;
   top: 52px;
-  width: 180px;
-  height: 110px;
+  width: 168px;
+  height: 105px;
   border: 1px solid #2a2a2a;
   image-rendering: pixelated;
   z-index: 40;
@@ -35,13 +35,26 @@ html, body {
 #vision-meta {
   position: fixed;
   right: 12px;
-  top: 166px;
-  width: 180px;
+  top: 160px;
+  width: 168px;
   text-align: center;
   font-size: 10px;
   color: #333;
   z-index: 40;
   pointer-events: none;
+}
+
+#minimap {
+  position: fixed;
+  right: 12px;
+  top: 182px;
+  width: 160px;
+  height: 100px;
+  border: 1px solid #2a2a2a;
+  z-index: 40;
+  background: #050505;
+  pointer-events: none;
+  image-rendering: pixelated;
 }
 
 #hud-top {
@@ -55,6 +68,18 @@ html, body {
   flex-direction: column;
   gap: 6px;
 }
+
+#scenario-bar {
+  display: flex;
+  gap: 16px;
+  align-items: baseline;
+  font-size: 13px;
+  color: #8a8;
+}
+
+#scenario-title { color: #9c9; font-weight: bold; }
+#scenario-timer { color: #ca5; font-variant-numeric: tabular-nums; }
+#scenario-timer.urgent { color: #f55; }
 
 #goals {
   display: flex;
@@ -93,6 +118,11 @@ html, body {
   transition: width 0.3s;
 }
 
+#rel-bar {
+  font-size: 10px;
+  color: #444;
+}
+
 #status {
   font-size: 11px;
   color: #333;
@@ -108,12 +138,42 @@ html, body {
   cursor: pointer;
 }
 
+#toasts {
+  position: fixed;
+  top: 120px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 55;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  pointer-events: none;
+  align-items: center;
+}
+
+.toast {
+  padding: 8px 14px;
+  background: rgba(0, 0, 0, 0.85);
+  border: 1px solid #3a3a2a;
+  color: #cc8;
+  font-size: 12px;
+  border-radius: 4px;
+  opacity: 1;
+  transition: opacity 0.6s;
+  max-width: 80vw;
+  text-align: center;
+}
+
+.toast.fade { opacity: 0; }
+.toast.good { color: #8c8; border-color: #2a4a2a; }
+.toast.bad { color: #c88; border-color: #4a2a2a; }
+
 #chatlog {
   position: fixed;
   left: 10px;
   bottom: 28px;
   width: min(460px, calc(100vw - 20px));
-  max-height: min(280px, 42vh);
+  max-height: min(260px, 38vh);
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
@@ -144,11 +204,11 @@ html, body {
 #debug {
   position: fixed;
   left: 10px;
-  top: 80px;
-  width: min(380px, 46vw);
-  max-height: 45vh;
+  top: 100px;
+  width: min(400px, 48vw);
+  max-height: 42vh;
   overflow: auto;
-  background: rgba(0, 0, 0, 0.82);
+  background: rgba(0, 0, 0, 0.88);
   border: 1px solid #2a2a2a;
   border-radius: 6px;
   padding: 8px 10px;
@@ -160,7 +220,7 @@ html, body {
 
 #debug.hidden { display: none; }
 #debug .dbg-title { color: #666; margin-bottom: 6px; }
-#debug kbd {
+#debug kbd, #hint kbd {
   border: 1px solid #333;
   padding: 0 4px;
   border-radius: 3px;
@@ -194,10 +254,50 @@ html, body {
   color: #222;
   z-index: 40;
   pointer-events: none;
+  max-width: 50vw;
+  text-align: right;
 }
 
-#hint kbd {
-  border: 1px solid #2a2a2a;
-  padding: 0 3px;
-  border-radius: 2px;
+#win-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.72);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
+
+#win-modal.hidden { display: none; }
+
+.win-card {
+  background: #0a0a0a;
+  border: 1px solid #2a3a2a;
+  padding: 28px 32px;
+  border-radius: 10px;
+  text-align: center;
+  max-width: 90vw;
+  pointer-events: auto;
+}
+
+.win-card h1 {
+  color: #8c8;
+  font-size: 22px;
+  margin-bottom: 10px;
+}
+
+.win-card p { color: #888; font-size: 13px; margin-bottom: 8px; }
+.win-card .win-sub { color: #555; font-size: 11px; }
+
+.win-card button {
+  margin-top: 14px;
+  background: #132013;
+  border: 1px solid #2a4a2a;
+  color: #9c9;
+  padding: 8px 18px;
+  border-radius: 6px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.win-card button:hover { border-color: #4a6a4a; color: #cfc; }

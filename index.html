@@ -8,23 +8,41 @@
 </head>
 <body>
   <div id="hud-top">
+    <div id="scenario-bar">
+      <span id="scenario-title">Mission: Orb Heist</span>
+      <span id="scenario-timer">3:00</span>
+    </div>
     <div id="goals"></div>
     <div id="status">booting VLA world…</div>
+    <div id="rel-bar"></div>
   </div>
 
   <canvas id="world" aria-label="simulation world"></canvas>
-  <canvas id="vision" width="360" height="220" aria-label="VLA egocentric camera"></canvas>
+  <canvas id="vision" width="256" height="160" aria-label="VLA egocentric camera"></canvas>
   <div id="vision-meta">VLA eye · offline</div>
+  <canvas id="minimap" width="160" height="100" aria-label="minimap"></canvas>
 
+  <div id="toasts"></div>
   <div id="chatlog" aria-label="chat log"></div>
 
   <div id="debug" class="hidden" aria-label="debug overlay">
-    <div class="dbg-title">debug <kbd>D</kbd> hide</div>
+    <div class="dbg-title">debug <kbd>D</kbd> · replay <kbd>R</kbd> · API in console</div>
     <pre id="dbg-body"></pre>
   </div>
 
+  <div id="win-modal" class="hidden">
+    <div class="win-card">
+      <h1>Mission complete</h1>
+      <p id="win-text">You gathered the orbs together.</p>
+      <p class="win-sub" id="win-stats"></p>
+      <button type="button" id="win-again">Play again</button>
+    </div>
+  </div>
+
   <div id="progress"><i></i></div>
-  <div id="hint">move mouse = you · <kbd>D</kbd> debug · WebGPU VLA</div>
+  <div id="hint">
+    mouse = you · hold <kbd>Q</kbd> call · <kbd>E</kbd> beacon · <kbd>D</kbd> debug · <kbd>R</kbd> replay
+  </div>
 
   <script type="module" src="main.js"></script>
 </body>
