@@ -97,39 +97,6 @@
       50% { transform: translateY(-4px); }
     }
 
-    #bubble {
-      position: absolute;
-      max-width: 240px;
-      padding: 8px 10px;
-      background: #0a0a0a;
-      border: 1px solid #2a2a2a;
-      border-radius: 8px;
-      color: #ddd;
-      font-size: 11px;
-      line-height: 1.35;
-      opacity: 0;
-      pointer-events: none;
-      z-index: 3;
-      transition: opacity 0.25s ease;
-      white-space: pre-wrap;
-      word-break: break-word;
-    }
-
-    #bubble.show { opacity: 1; }
-
-    #bubble::after {
-      content: "";
-      position: absolute;
-      left: 50%;
-      bottom: -6px;
-      width: 8px;
-      height: 8px;
-      background: #0a0a0a;
-      border-right: 1px solid #2a2a2a;
-      border-bottom: 1px solid #2a2a2a;
-      transform: translateX(-50%) rotate(45deg);
-    }
-
     #status {
       position: fixed;
       left: 12px;
@@ -188,7 +155,6 @@
 <body>
   <div id="goal"></div>
   <div id="stage">
-    <div id="bubble"></div>
     <div id="sprite" aria-label="autonomous sprite">
       <div class="head"></div>
       <div class="eye l"></div>
@@ -224,7 +190,6 @@
 
     const stage = document.getElementById("stage");
     const sprite = document.getElementById("sprite");
-    const bubble = document.getElementById("bubble");
     const statusEl = document.getElementById("status");
     const goalEl = document.getElementById("goal");
     const progressEl = document.getElementById("progress");
@@ -234,7 +199,6 @@
     let thinking = false;
     let running = true;
     let facing = 1;
-    let bubbleHide = null;
     let lastFrame = 0;
     let tickCount = 0;
     let speedMul = 1;
@@ -281,13 +245,6 @@
       state.y = y;
       sprite.style.left = `${x}px`;
       sprite.style.top = `${y}px`;
-      positionBubble();
-    }
-
-    function positionBubble() {
-      bubble.style.left = `${state.x}px`;
-      bubble.style.top = `${state.y - 56}px`;
-      bubble.style.transform = "translateX(-50%)";
     }
 
     function setFacing(dir) {
@@ -309,13 +266,9 @@
     }
 
     function say(text) {
+      // keep last words in mind state only — no on-screen bubble
       if (!text || !String(text).trim()) return;
       state.lastSaid = String(text).trim();
-      bubble.textContent = state.lastSaid.slice(0, 140);
-      bubble.classList.add("show");
-      positionBubble();
-      clearTimeout(bubbleHide);
-      bubbleHide = setTimeout(() => bubble.classList.remove("show"), 4000);
     }
 
     function remember(line) {
