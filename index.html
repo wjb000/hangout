@@ -214,8 +214,11 @@
       "Llama-3.2-1B-Instruct-q4f16_1-MLC",
     ];
 
-    const BASE_SPEED = 88;
+    // Environment sim: LLM issues move intents; physics only executes them.
+    const STEP_PX = 42;          // one "step" ≈ this many pixels
+    const MOVE_SPEED = 110;      // px/sec while executing an LLM step budget
     const NEAR = 90;
+    const PAD = 28;
     const CHAT_MAX = 16;
     const CHAT_FADE_MS = 14000;
     const CHAT_REMOVE_MS = 16000;
@@ -225,10 +228,10 @@
       right:     { vx:  1, vy:  0 },
       up:        { vx:  0, vy: -1 },
       down:      { vx:  0, vy:  1 },
-      upleft:    { vx: -0.7, vy: -0.7 },
-      upright:   { vx:  0.7, vy: -0.7 },
-      downleft:  { vx: -0.7, vy:  0.7 },
-      downright: { vx:  0.7, vy:  0.7 },
+      upleft:    { vx: -0.707, vy: -0.707 },
+      upright:   { vx:  0.707, vy: -0.707 },
+      downleft:  { vx: -0.707, vy:  0.707 },
+      downright: { vx:  0.707, vy:  0.707 },
     };
 
     const stage = document.getElementById("stage");
@@ -240,8 +243,6 @@
     let engine = null;
     let running = true;
     let lastFrame = 0;
-
-    // Shared chat transcript both agents can "hear"
     const transcript = [];
 
     function setStatus(text, kind = "") {
@@ -257,22 +258,18 @@
         .replace(/"/g, "&quot;");
     }
 
-    /** Only spoken dialogue — Minecraft-style */
+    /** Chat log: only spoken lines */
     function logSpeech(name, text, cssClass) {
       const msg = String(text || "").trim();
       if (!msg) return;
-
       transcript.push({ name, text: msg, t: Date.now() });
       if (transcript.length > 12) transcript.shift();
-
       const line = document.createElement("div");
       line.className = "line";
       line.innerHTML =
         `<span class="${cssClass}">&lt;${escapeHtml(name)}&gt;</span> ${escapeHtml(msg)}`;
       chatlog.appendChild(line);
-      while (chatlog.children.length > CHAT_MAX) {
-        chatlog.removeChild(chatlog.firstChild);
-      }
+      while (chatlog.children.length > CHAT_MAX) chatlog.removeChild(chatlog.firstChild);
       setTimeout(() => line.classList.add("fade"), CHAT_FADE_MS);
       setTimeout(() => line.remove(), CHAT_REMOVE_MS);
     }
@@ -291,17 +288,18 @@
         el,
         x: 0,
         y: 0,
-        vx: cfg.vx0,
-        vy: cfg.vy0,
-        move: cfg.move0,
+        // intentional motion — ONLY written by LLM (or wall halt)
+        intent: { vx: 0, vy: 0, remaining: 0, label: "idle" },
+        move: "idle",
         mood: "curious",
         goal: cfg.goal0,
         lastSaid: "",
         speedMul: 1,
-        facing: cfg.vx0 >= 0 ? 1 : -1,
+        facing: 1,
         ticks: 0,
-        energy: 1,
         memory: [],
+        envEvents: [], // walls / blocked / bumped — fed back to LLM
+        lastAction: null,
       };
     }
 
@@ -313,9 +311,6 @@
       persona:
         "Bit is optimistic, curious, a little naive. Cyan glitch. Loves company and patterns.",
       goal0: "find the other spark",
-      vx0: 1,
-      vy0: 0,
-      move0: "right",
     });
 
     const nox = createAgent({
@@ -326,9 +321,6 @@
       persona:
         "Nox is dry, teasing, sharp. Coral glitch. Acts cool but secretly likes Bit.",
       goal0: "pretend not to care while circling Bit",
-      vx0: -1,
-      vy0: 0,
-      move0: "left",
     });
 
     const agents = [bit, nox];
@@ -338,16 +330,13 @@
     }
 
     function dist(a, b) {
-      const dx = a.x - b.x;
-      const dy = a.y - b.y;
-      return Math.hypot(dx, dy);
+      return Math.hypot(a.x - b.x, a.y - b.y);
     }
 
     function place(agent, x, y) {
       const { w, h } = stageSize();
-      const pad = 28;
-      x = Math.max(pad, Math.min(w - pad, x));
-      y = Math.max(pad, Math.min(h - pad, y));
+      x = Math.max(PAD, Math.min(w - PAD, x));
+      y = Math.max(PAD, Math.min(h - PAD, y));
       agent.x = x;
       agent.y = y;
       agent.el.style.left = `${x}px`;
@@ -365,43 +354,89 @@
       if (["think", "happy", "wave", "curious"].includes(mood)) {
         agent.el.classList.add(mood);
       }
-      if (mood === "happy" || mood === "wave") agent.speedMul = 1.25;
-      else if (mood === "think") agent.speedMul = 0.65;
+      if (mood === "happy" || mood === "wave") agent.speedMul = 1.2;
+      else if (mood === "think") agent.speedMul = 0.75;
       else if (mood === "curious") agent.speedMul = 1.05;
       else agent.speedMul = 1;
     }
 
-    function setDirection(agent, name) {
-      let dir = String(name || "right").toLowerCase().replace(/[_\s-]/g, "");
-      if (dir === "none" || dir === "stay") dir = agent.move || "right";
+    function pushEnv(agent, event) {
+      agent.envEvents.push(event);
+      if (agent.envEvents.length > 6) agent.envEvents.shift();
+    }
+
+    function resolveDir(agent, name) {
+      let dir = String(name || "idle").toLowerCase().replace(/[_\s-]/g, "");
+      if (dir === "none" || dir === "stop" || dir === "stay" || dir === "idle") {
+        return { dir: "idle", vx: 0, vy: 0 };
+      }
       if (dir === "toward" || dir === "approach") {
         const o = otherOf(agent);
         const dx = o.x - agent.x;
         const dy = o.y - agent.y;
-        if (Math.abs(dx) > Math.abs(dy)) dir = dx >= 0 ? "right" : "left";
-        else dir = dy >= 0 ? "down" : "up";
-        // prefer diagonal if both matter
+        if (Math.abs(dx) < 4 && Math.abs(dy) < 4) return { dir: "idle", vx: 0, vy: 0 };
         if (Math.abs(dx) > 20 && Math.abs(dy) > 20) {
           const hs = dx >= 0 ? "right" : "left";
           const vs = dy >= 0 ? "down" : "up";
           dir = vs === "up" ? (hs === "left" ? "upleft" : "upright")
                             : (hs === "left" ? "downleft" : "downright");
+        } else if (Math.abs(dx) >= Math.abs(dy)) {
+          dir = dx >= 0 ? "right" : "left";
+        } else {
+          dir = dy >= 0 ? "down" : "up";
         }
       } else if (dir === "away" || dir === "flee") {
         const o = otherOf(agent);
         const dx = agent.x - o.x;
         const dy = agent.y - o.y;
-        if (Math.abs(dx) > Math.abs(dy)) dir = dx >= 0 ? "right" : "left";
-        else dir = dy >= 0 ? "down" : "up";
-      } else if (dir === "random" || !DIRS[dir]) {
-        const keys = Object.keys(DIRS);
-        dir = keys[Math.floor(Math.random() * keys.length)];
+        if (Math.abs(dx) > 20 && Math.abs(dy) > 20) {
+          const hs = dx >= 0 ? "right" : "left";
+          const vs = dy >= 0 ? "down" : "up";
+          dir = vs === "up" ? (hs === "left" ? "upleft" : "upright")
+                            : (hs === "left" ? "downleft" : "downright");
+        } else if (Math.abs(dx) >= Math.abs(dy)) {
+          dir = dx >= 0 ? "right" : "left";
+        } else {
+          dir = dy >= 0 ? "down" : "up";
+        }
       }
-      const d = DIRS[dir];
+      if (!DIRS[dir]) {
+        // unknown → stay; never invent random walks outside LLM
+        return { dir: "idle", vx: 0, vy: 0 };
+      }
+      return { dir, vx: DIRS[dir].vx, vy: DIRS[dir].vy };
+    }
+
+    /**
+     * LLM-only: queue movement in the environment.
+     * steps = how far to walk (1–8). Environment sim executes it over time.
+     */
+    function issueMove(agent, moveName, steps = 3) {
+      const n = Math.max(0, Math.min(8, Number(steps) || 0));
+      const { dir, vx, vy } = resolveDir(agent, moveName);
       agent.move = dir;
-      agent.vx = d.vx;
-      agent.vy = d.vy;
-      if (Math.abs(d.vx) > 0.01) setFacing(agent, d.vx > 0 ? 1 : -1);
+      if (dir === "idle" || n === 0) {
+        agent.intent = { vx: 0, vy: 0, remaining: 0, label: "idle" };
+        agent.el.classList.remove("walk");
+        return;
+      }
+      agent.intent = {
+        vx,
+        vy,
+        remaining: n * STEP_PX,
+        label: dir,
+      };
+      if (Math.abs(vx) > 0.01) setFacing(agent, vx > 0 ? 1 : -1);
+      agent.el.classList.add("walk");
+    }
+
+    function haltIntent(agent, reason) {
+      if (agent.intent.remaining > 0 || agent.intent.label !== "idle") {
+        pushEnv(agent, reason);
+      }
+      agent.intent = { vx: 0, vy: 0, remaining: 0, label: "idle" };
+      agent.move = "idle";
+      agent.el.classList.remove("walk");
     }
 
     function say(agent, text) {
@@ -418,42 +453,55 @@
 
     function applyAction(agent, action) {
       if (!action || typeof action !== "object") return;
+      agent.lastAction = action;
+
       if (action.goal) agent.goal = String(action.goal).slice(0, 80);
-      if (action.move) setDirection(agent, action.move);
       if (action.mood) setMood(agent, String(action.mood).toLowerCase());
-      if (action.say) say(agent, action.say);
       if (typeof action.speed === "number") {
-        agent.speedMul = Math.max(0.4, Math.min(1.8, action.speed));
+        agent.speedMul = Math.max(0.45, Math.min(1.8, action.speed));
       }
+
+      // Movement MUST come from the model into the environment
+      const move = action.move != null ? action.move : "idle";
+      const steps = action.steps != null ? action.steps : 3;
+      issueMove(agent, move, steps);
+
+      if (action.say) say(agent, action.say);
+
       remember(
         agent,
-        `${agent.move}` +
-          (action.say ? ` “${String(action.say).slice(0, 40)}”` : "") +
-          (action.goal ? ` goal=${String(action.goal).slice(0, 24)}` : "")
+        `CMD move=${agent.move} steps=${steps}` +
+          (action.say ? ` say="${String(action.say).slice(0, 36)}"` : "")
       );
     }
 
     function parseAction(raw) {
-      if (!raw) return null;
+      if (!raw) return { move: "idle", steps: 0, say: "" };
       let t = raw.trim();
       const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/i);
       if (fence) t = fence[1].trim();
       const brace = t.match(/\{[\s\S]*\}/);
       if (brace) t = brace[0];
       try {
-        return JSON.parse(t);
+        const obj = JSON.parse(t);
+        if (obj.move == null) obj.move = "idle";
+        if (obj.steps == null) obj.steps = 3;
+        return obj;
       } catch {
         const lower = raw.toLowerCase();
-        let move = "random";
+        let move = "idle";
         if (lower.includes("toward") || lower.includes("approach")) move = "toward";
         else if (lower.includes("away") || lower.includes("flee")) move = "away";
         else if (lower.includes("left")) move = "left";
         else if (lower.includes("right")) move = "right";
         else if (lower.includes("up")) move = "up";
         else if (lower.includes("down")) move = "down";
-        // use raw as speech if it looks like dialogue
-        const sayText = raw.replace(/[{}[\]"]/g, "").slice(0, 80);
-        return { move, say: sayText, mood: "curious" };
+        return {
+          move,
+          steps: 3,
+          say: raw.replace(/[{}[\]"]/g, "").slice(0, 80),
+          mood: "curious",
+        };
       }
     }
 
@@ -466,73 +514,136 @@
       return `${vs}-${hs}`;
     }
 
-    function systemPrompt(agent) {
+    function wallProximity(agent) {
+      const { w, h } = stageSize();
+      const hits = [];
+      if (agent.x <= PAD + 8) hits.push("near west wall");
+      if (agent.x >= w - PAD - 8) hits.push("near east wall");
+      if (agent.y <= PAD + 8) hits.push("near north wall");
+      if (agent.y >= h - PAD - 8) hits.push("near south wall");
+      return hits;
+    }
+
+    function envSnapshot(agent) {
       const { w, h } = stageSize();
       const other = otherOf(agent);
       const d = Math.round(dist(agent, other));
-      const near = d < NEAR;
+      const walls = wallProximity(agent);
+      return {
+        w,
+        h,
+        d,
+        walls,
+        near: d < NEAR,
+        intentLeft: Math.round(agent.intent.remaining),
+      };
+    }
+
+    function systemPrompt(agent) {
+      const snap = envSnapshot(agent);
+      const other = otherOf(agent);
       const recentChat = transcript
         .slice(-6)
         .map((m) => `<${m.name}> ${m.text}`)
         .join("\n");
+      const events = agent.envEvents.length
+        ? agent.envEvents.map((e) => "- " + e).join("\n")
+        : "- (none)";
+      // clear consumed events after reading into prompt (fresh each think)
+      const eventBlock = events;
+      agent.envEvents = [];
 
-      return `You are ${agent.name}, an AUTONOMOUS sprite on a black ${w}x${h} stage.
-You share the void with ONE other sprite. You can talk to them and react to them.
+      return `You are ${agent.name}. You CONTROL your body in a 2D environment.
+The environment is a black rectangle ${snap.w}x${snap.h} pixels.
+Origin top-left. Walls at the edges. You cannot walk through walls or the other sprite.
 
-YOU: ${agent.persona}
-Your goal: ${agent.goal}
-Your pos: (${Math.round(agent.x)}, ${Math.round(agent.y)}) ${region(agent)} heading ${agent.move} mood=${agent.mood}
+=== ENVIRONMENT STATE (ground truth) ===
+You @ (${Math.round(agent.x)}, ${Math.round(agent.y)}) region=${region(agent)}
+Your last command: ${agent.move} | steps left in world: ${snap.intentLeft}px
+${other.name} @ (${Math.round(other.x)}, ${Math.round(other.y)}) region=${region(other)} heading=${other.move}
+Distance to ${other.name}: ${snap.d}px ${snap.near ? "CLOSE" : "FAR"}
+Wall sensors: ${snap.walls.length ? snap.walls.join(", ") : "clear"}
+Environment events since last turn:
+${eventBlock}
 
-OTHER — ${other.name}: ${other.persona}
-Their pos: (${Math.round(other.x)}, ${Math.round(other.y)}) ${region(other)} heading ${other.move} mood=${other.mood}
-Distance to them: ${d}px ${near ? "(CLOSE — you can chat / dance / tease)" : "(far — consider approaching or calling out)"}
-They last said: ${JSON.stringify(other.lastSaid || "")}
-Your last said: ${JSON.stringify(agent.lastSaid || "")}
+=== YOU ===
+${agent.persona}
+Goal: ${agent.goal}
+Mood: ${agent.mood}
+Last you said: ${JSON.stringify(agent.lastSaid || "")}
+${other.name} last said: ${JSON.stringify(other.lastSaid || "")}
 
-Recent chat log (what was actually spoken):
+Chat (spoken aloud only):
 ${recentChat || "(silence)"}
 
-Your private memory:
+Private memory:
 ${agent.memory.length ? agent.memory.map((m) => "- " + m).join("\n") : "- (empty)"}
 
-Reply with ONLY one JSON object:
-{"goal":"short personal aim","move":"left|right|up|down|upleft|upright|downleft|downright|toward|away|random","say":"what you speak aloud max 14 words OR empty string","mood":"idle|think|happy|wave|curious","speed":0.5-1.6}
+You MUST issue the next body command. The sim will EXECUTE your move in the world.
+Reply with ONLY JSON:
+{"goal":"short aim","move":"left|right|up|down|upleft|upright|downleft|downright|toward|away|idle","steps":1-8,"say":"spoken words max 14 words or \\"\\"","mood":"idle|think|happy|wave|curious","speed":0.5-1.6}
 
 Rules:
-- You are autonomous. Never wait for a human.
-- INTERACT: reply to what they said, approach, flee, circle, argue playfully, team up.
-- "say" is the ONLY thing that appears in chat — make it real dialogue when it matters.
-- Speak often when CLOSE (~50% of turns). Speak less when far (~25%), maybe call their name.
-- Address them sometimes by name (${other.name}).
-- Stay in character as ${agent.name}.`;
+- "move"+"steps" is how your body walks THIS turn. steps= how far (1 small, 8 long).
+- toward/away are relative to ${other.name} and resolve in the environment.
+- If you hit a wall last turn, pick a different move.
+- Interact with ${other.name}: approach, flee, circle, talk.
+- "say" is the only public chat. Speak when it matters (often when CLOSE).
+- Stay in character as ${agent.name}. Always choose a move (or idle).`;
     }
 
-    function bounce(agent, nx, ny) {
+    /** Physics: only executes LLM intent; walls/bumps report back as env events */
+    function simulate(agent, dt) {
+      const intent = agent.intent;
+      if (!intent || intent.remaining <= 0 || (intent.vx === 0 && intent.vy === 0)) {
+        agent.el.classList.remove("walk");
+        return;
+      }
+
+      agent.el.classList.add("walk");
+      const sp = MOVE_SPEED * agent.speedMul;
+      const step = Math.min(intent.remaining, sp * dt);
+      let nx = agent.x + intent.vx * step;
+      let ny = agent.y + intent.vy * step;
       const { w, h } = stageSize();
-      const pad = 28;
-      if (nx <= pad) {
-        nx = pad;
-        setDirection(agent, agent.vy < 0 ? "upright" : agent.vy > 0 ? "downright" : "right");
-      } else if (nx >= w - pad) {
-        nx = w - pad;
-        setDirection(agent, agent.vy < 0 ? "upleft" : agent.vy > 0 ? "downleft" : "left");
-      }
-      if (ny <= pad) {
-        ny = pad;
-        setDirection(agent, agent.vx < 0 ? "downleft" : agent.vx > 0 ? "downright" : "down");
-      } else if (ny >= h - pad) {
-        ny = h - pad;
-        setDirection(agent, agent.vx < 0 ? "upleft" : agent.vx > 0 ? "upright" : "up");
-      }
-      // soft separation if overlapping
+
+      let hit = null;
+      if (nx <= PAD) { nx = PAD; hit = "hit west wall — movement stopped"; }
+      else if (nx >= w - PAD) { nx = w - PAD; hit = "hit east wall — movement stopped"; }
+      if (ny <= PAD) { ny = PAD; hit = hit || "hit north wall — movement stopped"; }
+      else if (ny >= h - PAD) { ny = h - PAD; hit = hit || "hit south wall — movement stopped"; }
+
+      // collision with other sprite
       const other = otherOf(agent);
-      const d = dist({ x: nx, y: ny }, other);
-      if (d < 28 && d > 0.1) {
-        const push = (28 - d) / d;
-        nx += (nx - other.x) * push * 0.5;
-        ny += (ny - other.y) * push * 0.5;
+      const d = Math.hypot(nx - other.x, ny - other.y);
+      if (d < 30 && d > 0.01) {
+        const push = (30 - d) / d;
+        nx += (nx - other.x) * push * 0.6;
+        ny += (ny - other.y) * push * 0.6;
+        // if still closing into them while moving toward, stop intent
+        const closing =
+          (intent.vx * (other.x - agent.x) + intent.vy * (other.y - agent.y)) > 0;
+        if (closing && d < 32) {
+          haltIntent(agent, `bumped into ${other.name} — movement stopped`);
+          place(agent, nx, ny);
+          return;
+        }
       }
-      return { x: nx, y: ny };
+
+      if (hit) {
+        place(agent, nx, ny);
+        haltIntent(agent, hit);
+        return;
+      }
+
+      intent.remaining = Math.max(0, intent.remaining - step);
+      place(agent, nx, ny);
+      if (intent.remaining <= 0) {
+        agent.intent = { vx: 0, vy: 0, remaining: 0, label: "idle" };
+        agent.move = "idle";
+        agent.el.classList.remove("walk");
+        pushEnv(agent, "finished move steps — now idle in place");
+      }
     }
 
     function tick(now) {
@@ -540,24 +651,32 @@ Rules:
       const dt = Math.min(0.05, (now - lastFrame) / 1000);
       lastFrame = now;
 
-      if (running) {
-        for (const agent of agents) {
-          agent.el.classList.add("walk");
-          const sp = BASE_SPEED * agent.speedMul;
-          let nx = agent.x + agent.vx * sp * dt;
-          let ny = agent.y + agent.vy * sp * dt;
-          const p = bounce(agent, nx, ny);
-          place(agent, p.x, p.y);
-        }
+      if (running && engine) {
+        // Only simulate once the LLM is online — bodies wait frozen until then
+        for (const agent of agents) simulate(agent, dt);
       }
 
       requestAnimationFrame(tick);
     }
 
+    function waitUntilIdleOrTimeout(agent, maxMs = 2800) {
+      const start = performance.now();
+      return new Promise((resolve) => {
+        function check() {
+          const busy = agent.intent && agent.intent.remaining > 0;
+          if (!busy || performance.now() - start > maxMs) return resolve();
+          requestAnimationFrame(check);
+        }
+        check();
+      });
+    }
+
     async function think(agent) {
       if (!engine || !running) return;
+      // let previous LLM move mostly finish so position feedback is real
+      await waitUntilIdleOrTimeout(agent, 2200);
+
       agent.ticks += 1;
-      agent.energy = Math.max(0.2, Math.min(1, agent.energy + (Math.random() * 0.1 - 0.04)));
       setMood(agent, "think");
 
       try {
@@ -569,39 +688,43 @@ Rules:
             role: "user",
             content:
               agent.ticks === 1
-                ? `You just woke. You notice ${other.name} nearby. Set a goal, move, and maybe say hi.`
-                : `Your turn (tick ${agent.ticks}). Distance to ${other.name}: ${d}px. ` +
-                  (d < NEAR
-                    ? "You are CLOSE — interact, talk, react to them."
-                    : "They are far — call out or move toward/away. Live your life."),
+                ? `You woke in the environment. Issue your first MOVE command (and maybe say hi to ${other.name}).`
+                : `Turn ${agent.ticks}. World updated. Distance to ${other.name}: ${d}px. ` +
+                  `Issue the next move the environment should execute.` +
+                  (d < NEAR ? " You are CLOSE — interact." : " Far — approach/call/or explore."),
           },
         ];
 
         const reply = await engine.chat.completions.create({
           messages,
-          temperature: 1.0,
-          max_tokens: 110,
+          temperature: 0.95,
+          max_tokens: 120,
         });
 
         const content = reply?.choices?.[0]?.message?.content || "";
         const action = parseAction(content);
         if (running) applyAction(agent, action);
-        setStatus(`${agent.name} · ${agent.move}`, "");
+
+        setStatus(
+          `${agent.name} → ${agent.move}×${action.steps ?? "?"} @ (${Math.round(agent.x)},${Math.round(agent.y)})`,
+          ""
+        );
       } catch (err) {
         console.error(agent.name, err);
-        setDirection(agent, "random");
+        // on failure: do NOT random-walk; stay put and note env
+        haltIntent(agent, "brain error — stayed put");
         setStatus(`${agent.name} glitch`, "warn");
       }
     }
 
     async function dualLoop() {
-      // alternate turns so they can react to each other
       let i = 0;
       while (running && engine) {
         const agent = agents[i % agents.length];
         await think(agent);
         i += 1;
-        await new Promise((r) => setTimeout(r, 280));
+        // small gap so both agents' moves can play out in the world
+        await new Promise((r) => setTimeout(r, 200));
       }
     }
 
@@ -631,11 +754,10 @@ Rules:
           setTimeout(() => { progressEl.style.display = "none"; }, 400);
           setMood(bit, "curious");
           setMood(nox, "curious");
-          // seed first lines after minds online
           say(bit, "hey… is someone else here?");
           say(nox, "ugh. company.");
-          setStatus("autonomous duo", "");
-          setTimeout(() => { statusEl.style.opacity = "0.3"; }, 3000);
+          setStatus("LLM driving movement", "");
+          setTimeout(() => { statusEl.style.opacity = "0.35"; }, 3000);
           dualLoop();
           return;
         } catch (err) {
@@ -649,24 +771,19 @@ Rules:
       setStatus(`failed — click to retry`, "err");
     }
 
-    // spawn positions
     function layout() {
       const { w, h } = stageSize();
       place(bit, w * 0.35, h * 0.5);
       place(nox, w * 0.65, h * 0.5);
-      setDirection(bit, "right");
-      setDirection(nox, "left");
+      // frozen until LLM issues first intents
+      bit.intent = { vx: 0, vy: 0, remaining: 0, label: "idle" };
+      nox.intent = { vx: 0, vy: 0, remaining: 0, label: "idle" };
+      bit.el.classList.remove("walk");
+      nox.el.classList.remove("walk");
     }
+
     layout();
     requestAnimationFrame(tick);
-
-    // pre-brain wander
-    setInterval(() => {
-      if (!engine && running) {
-        setDirection(bit, "random");
-        setDirection(nox, "random");
-      }
-    }, 2400);
 
     window.addEventListener("resize", () => {
       place(bit, bit.x, bit.y);
