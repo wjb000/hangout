@@ -5,17 +5,551 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Hangout</title>
   <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
 
     html, body {
-      min-height: 100%;
+      height: 100%;
       background: #000;
+      color: #9a9a9a;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+      overflow: hidden;
+      user-select: none;
+    }
+
+    #stage {
+      position: fixed;
+      inset: 0;
+      bottom: 72px;
+    }
+
+    /* --- sprite --- */
+    #sprite {
+      position: absolute;
+      width: 32px;
+      height: 40px;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      transition: left 0.35s ease, top 0.35s ease;
+      image-rendering: pixelated;
+      z-index: 2;
+    }
+
+    #sprite.flip { transform: translate(-50%, -50%) scaleX(-1); }
+
+    #sprite .body {
+      position: absolute;
+      inset: 8px 6px 4px;
+      background: #6ec6ff;
+      border-radius: 4px 4px 2px 2px;
+      box-shadow: 0 0 12px rgba(110, 198, 255, 0.35);
+    }
+
+    #sprite .head {
+      position: absolute;
+      top: 0;
+      left: 8px;
+      width: 16px;
+      height: 14px;
+      background: #b8e4ff;
+      border-radius: 3px;
+    }
+
+    #sprite .eye {
+      position: absolute;
+      top: 5px;
+      width: 3px;
+      height: 3px;
+      background: #111;
+      border-radius: 1px;
+    }
+
+    #sprite .eye.l { left: 10px; }
+    #sprite .eye.r { left: 19px; }
+
+    #sprite .leg {
+      position: absolute;
+      bottom: 0;
+      width: 5px;
+      height: 8px;
+      background: #3a8fc4;
+      border-radius: 1px;
+    }
+
+    #sprite .leg.l { left: 9px; }
+    #sprite .leg.r { right: 9px; }
+
+    #sprite.walk .leg.l { animation: step 0.28s infinite alternate; }
+    #sprite.walk .leg.r { animation: step 0.28s infinite alternate-reverse; }
+
+    @keyframes step {
+      from { transform: translateY(0); }
+      to { transform: translateY(-3px); }
+    }
+
+    #sprite.think .body { background: #c9a0ff; box-shadow: 0 0 12px rgba(201, 160, 255, 0.4); }
+    #sprite.happy .body { background: #7dffb3; box-shadow: 0 0 12px rgba(125, 255, 179, 0.4); }
+    #sprite.wave .head { animation: bob 0.4s ease 2; }
+
+    @keyframes bob {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-4px); }
+    }
+
+    /* speech bubble */
+    #bubble {
+      position: absolute;
+      max-width: 220px;
+      padding: 8px 10px;
+      background: #111;
+      border: 1px solid #333;
+      border-radius: 8px;
+      color: #e8e8e8;
+      font-size: 11px;
+      line-height: 1.35;
+      opacity: 0;
+      pointer-events: none;
+      z-index: 3;
+      transition: opacity 0.2s ease;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    #bubble.show { opacity: 1; }
+
+    #bubble::after {
+      content: "";
+      position: absolute;
+      left: 50%;
+      bottom: -6px;
+      width: 8px;
+      height: 8px;
+      background: #111;
+      border-right: 1px solid #333;
+      border-bottom: 1px solid #333;
+      transform: translateX(-50%) rotate(45deg);
+    }
+
+    /* HUD */
+    #hud {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: 72px;
+      padding: 10px 14px;
+      border-top: 1px solid #1a1a1a;
+      background: #050505;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      grid-template-rows: auto auto;
+      gap: 8px 12px;
+      align-items: center;
+      z-index: 10;
+    }
+
+    #status {
+      grid-column: 1 / -1;
+      color: #666;
+      font-size: 11px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    #status.ok { color: #5c5; }
+    #status.warn { color: #ca5; }
+    #status.err { color: #c55; }
+
+    #progress {
+      display: none;
+      height: 2px;
+      background: #1a1a1a;
+      grid-column: 1 / -1;
+      margin-top: -4px;
+    }
+
+    #progress > i {
+      display: block;
+      height: 100%;
+      width: 0%;
+      background: #6ec6ff;
+      transition: width 0.15s linear;
+    }
+
+    form {
+      display: flex;
+      gap: 8px;
+      grid-column: 1;
+      min-width: 0;
+    }
+
+    input[type="text"] {
+      flex: 1;
+      min-width: 0;
+      background: #0c0c0c;
+      border: 1px solid #222;
+      color: #ddd;
+      padding: 8px 10px;
+      border-radius: 6px;
+      outline: none;
+      font: inherit;
+    }
+
+    input[type="text"]:focus { border-color: #444; }
+
+    button {
+      background: #141414;
+      border: 1px solid #2a2a2a;
+      color: #ccc;
+      padding: 8px 12px;
+      border-radius: 6px;
+      font: inherit;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    button:hover:not(:disabled) { border-color: #555; color: #fff; }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    button.primary {
+      background: #0e2030;
+      border-color: #1e4a6a;
+      color: #8ecfff;
+    }
+
+    #actions {
+      display: flex;
+      gap: 6px;
+    }
+
+    #hint {
+      position: fixed;
+      top: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      color: #333;
+      font-size: 11px;
+      pointer-events: none;
+      z-index: 5;
     }
   </style>
 </head>
-<body></body>
+<body>
+  <div id="hint">in-browser LLM · WebGPU</div>
+  <div id="stage">
+    <div id="bubble"></div>
+    <div id="sprite" aria-label="sprite">
+      <div class="head"></div>
+      <div class="eye l"></div>
+      <div class="eye r"></div>
+      <div class="body"></div>
+      <div class="leg l"></div>
+      <div class="leg r"></div>
+    </div>
+  </div>
+
+  <div id="hud">
+    <div id="status">idle — click Load brain</div>
+    <div id="progress"><i></i></div>
+    <form id="chat">
+      <input id="msg" type="text" placeholder="tell the sprite what to do…" autocomplete="off" disabled />
+      <button type="submit" id="send" class="primary" disabled>go</button>
+    </form>
+    <div id="actions">
+      <button type="button" id="load" class="primary">Load brain</button>
+      <button type="button" id="wander" disabled>Wander</button>
+    </div>
+  </div>
+
+  <script type="module">
+    import { CreateMLCEngine } from "https://esm.run/@mlc-ai/web-llm";
+
+    // Small model that fits browser RAM; falls back through the list
+    const MODELS = [
+      "SmolLM2-360M-Instruct-q4f16_1-MLC",
+      "Qwen2.5-0.5B-Instruct-q4f16_1-MLC",
+      "Llama-3.2-1B-Instruct-q4f16_1-MLC",
+    ];
+
+    const stage = document.getElementById("stage");
+    const sprite = document.getElementById("sprite");
+    const bubble = document.getElementById("bubble");
+    const statusEl = document.getElementById("status");
+    const progressEl = document.getElementById("progress");
+    const progressBar = progressEl.querySelector("i");
+    const msgInput = document.getElementById("msg");
+    const sendBtn = document.getElementById("send");
+    const loadBtn = document.getElementById("load");
+    const wanderBtn = document.getElementById("wander");
+    const form = document.getElementById("chat");
+
+    let engine = null;
+    let busy = false;
+    let wandering = false;
+    let wanderTimer = null;
+    let facing = 1; // 1 right, -1 left
+    let bubbleHide = null;
+
+    // sprite logical position (px from stage top-left of sprite center)
+    const state = {
+      x: 0,
+      y: 0,
+      mood: "idle",
+      lastSaid: "",
+    };
+
+    function setStatus(text, kind = "") {
+      statusEl.textContent = text;
+      statusEl.className = kind;
+    }
+
+    function stageSize() {
+      return { w: stage.clientWidth, h: stage.clientHeight };
+    }
+
+    function placeSprite(x, y, animate = true) {
+      const { w, h } = stageSize();
+      const pad = 28;
+      x = Math.max(pad, Math.min(w - pad, x));
+      y = Math.max(pad, Math.min(h - pad, y));
+      state.x = x;
+      state.y = y;
+      if (!animate) sprite.style.transition = "none";
+      sprite.style.left = `${x}px`;
+      sprite.style.top = `${y}px`;
+      if (!animate) {
+        // force reflow then restore
+        void sprite.offsetWidth;
+        sprite.style.transition = "";
+      }
+      positionBubble();
+    }
+
+    function positionBubble() {
+      const sx = state.x;
+      const sy = state.y;
+      bubble.style.left = `${sx}px`;
+      bubble.style.top = `${sy - 56}px`;
+      bubble.style.transform = "translateX(-50%)";
+    }
+
+    function setFacing(dir) {
+      facing = dir;
+      sprite.classList.toggle("flip", facing < 0);
+    }
+
+    function setMood(mood) {
+      sprite.classList.remove("think", "happy", "wave", "walk");
+      state.mood = mood || "idle";
+      if (mood === "think" || mood === "happy" || mood === "wave") {
+        sprite.classList.add(mood);
+      }
+    }
+
+    function say(text) {
+      if (!text) return;
+      state.lastSaid = text;
+      bubble.textContent = text.slice(0, 160);
+      bubble.classList.add("show");
+      positionBubble();
+      clearTimeout(bubbleHide);
+      bubbleHide = setTimeout(() => bubble.classList.remove("show"), 4500);
+    }
+
+    function moveBy(dx, dy) {
+      if (dx !== 0) setFacing(dx > 0 ? 1 : -1);
+      sprite.classList.add("walk");
+      placeSprite(state.x + dx, state.y + dy, true);
+      setTimeout(() => sprite.classList.remove("walk"), 380);
+    }
+
+    function applyAction(action) {
+      if (!action || typeof action !== "object") return;
+
+      const step = Math.max(1, Math.min(8, Number(action.steps) || 2));
+      const dist = 36 * step;
+      const dir = String(action.move || "none").toLowerCase();
+
+      if (dir === "left") moveBy(-dist, 0);
+      else if (dir === "right") moveBy(dist, 0);
+      else if (dir === "up") moveBy(0, -dist);
+      else if (dir === "down") moveBy(0, dist);
+      else if (dir === "random") {
+        const picks = ["left", "right", "up", "down"];
+        const p = picks[Math.floor(Math.random() * picks.length)];
+        applyAction({ ...action, move: p });
+        return;
+      }
+
+      if (action.mood) setMood(String(action.mood).toLowerCase());
+      if (action.say) say(String(action.say));
+    }
+
+    function parseAction(raw) {
+      if (!raw) return null;
+      // strip fences / junk
+      let t = raw.trim();
+      const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/i);
+      if (fence) t = fence[1].trim();
+      const brace = t.match(/\{[\s\S]*\}/);
+      if (brace) t = brace[0];
+      try {
+        return JSON.parse(t);
+      } catch {
+        // fallback: keyword moves
+        const lower = raw.toLowerCase();
+        const move =
+          lower.includes("left") ? "left" :
+          lower.includes("right") ? "right" :
+          lower.includes("up") ? "up" :
+          lower.includes("down") ? "down" : "none";
+        return { move, steps: 2, say: raw.slice(0, 80), mood: "think" };
+      }
+    }
+
+    function systemPrompt() {
+      const { w, h } = stageSize();
+      return `You control a tiny sprite on a black webpage stage.
+Stage size: ${w}x${h}px. Sprite is at x=${Math.round(state.x)}, y=${Math.round(state.y)} (center).
+Facing: ${facing > 0 ? "right" : "left"}. Last said: ${JSON.stringify(state.lastSaid || "")}.
+
+Reply with ONLY one JSON object (no markdown, no extra text):
+{"move":"left|right|up|down|none|random","steps":1-5,"say":"short speech bubble max 12 words","mood":"idle|think|happy|wave"}
+
+Rules:
+- stay playful and brief
+- steps is how far to walk (1 small, 5 big)
+- if user gives an order, follow it
+- if wandering, pick a sensible move and a tiny thought`;
+    }
+
+    async function think(userText) {
+      if (!engine || busy) return;
+      busy = true;
+      sendBtn.disabled = true;
+      setMood("think");
+      setStatus("thinking…", "warn");
+
+      try {
+        const messages = [
+          { role: "system", content: systemPrompt() },
+          { role: "user", content: userText || "Wander a bit. Pick a move and say something tiny." },
+        ];
+
+        const reply = await engine.chat.completions.create({
+          messages,
+          temperature: 0.8,
+          max_tokens: 120,
+        });
+
+        const content = reply?.choices?.[0]?.message?.content || "";
+        const action = parseAction(content);
+        applyAction(action);
+        setStatus(`ok · ${action?.move || "none"}${action?.say ? " · “" + action.say.slice(0, 40) + "”" : ""}`, "ok");
+      } catch (err) {
+        console.error(err);
+        setStatus(`error: ${err.message || err}`, "err");
+        setMood("idle");
+      } finally {
+        busy = false;
+        sendBtn.disabled = !engine;
+        msgInput.disabled = !engine;
+      }
+    }
+
+    async function loadBrain() {
+      if (engine || busy) return;
+
+      if (!navigator.gpu) {
+        setStatus("WebGPU missing — use Chrome/Edge on desktop", "err");
+        return;
+      }
+
+      busy = true;
+      loadBtn.disabled = true;
+      progressEl.style.display = "block";
+      progressBar.style.width = "0%";
+      setStatus("loading in-browser model (first time downloads weights)…", "warn");
+
+      const initProgressCallback = (report) => {
+        const p = Math.round((report.progress || 0) * 100);
+        progressBar.style.width = `${p}%`;
+        setStatus(`${report.text || "loading…"} (${p}%)`, "warn");
+      };
+
+      let lastErr = null;
+      for (const model of MODELS) {
+        try {
+          setStatus(`trying ${model}…`, "warn");
+          engine = await CreateMLCEngine(model, { initProgressCallback });
+          setStatus(`brain online · ${model}`, "ok");
+          progressBar.style.width = "100%";
+          setTimeout(() => { progressEl.style.display = "none"; }, 600);
+          msgInput.disabled = false;
+          sendBtn.disabled = false;
+          wanderBtn.disabled = false;
+          loadBtn.textContent = "Loaded";
+          say("yo");
+          setMood("wave");
+          busy = false;
+          return;
+        } catch (err) {
+          console.warn("model failed", model, err);
+          lastErr = err;
+          engine = null;
+        }
+      }
+
+      busy = false;
+      loadBtn.disabled = false;
+      progressEl.style.display = "none";
+      setStatus(`failed to load model: ${lastErr?.message || lastErr}`, "err");
+    }
+
+    function setWander(on) {
+      wandering = on;
+      wanderBtn.textContent = on ? "Stop" : "Wander";
+      clearInterval(wanderTimer);
+      wanderTimer = null;
+      if (on) {
+        setStatus("wandering — brain decides moves", "ok");
+        think("You are free. Wander the void a little.");
+        wanderTimer = setInterval(() => {
+          if (!busy && engine) think("Keep wandering. New move.");
+        }, 7000);
+      } else {
+        setStatus(engine ? "brain online · waiting" : "idle", engine ? "ok" : "");
+      }
+    }
+
+    // init center
+    function recenter() {
+      const { w, h } = stageSize();
+      placeSprite(w / 2, h / 2, false);
+    }
+    recenter();
+    window.addEventListener("resize", () => placeSprite(state.x, state.y, false));
+
+    loadBtn.addEventListener("click", () => loadBrain());
+    wanderBtn.addEventListener("click", () => setWander(!wandering));
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const t = msgInput.value.trim();
+      if (!t || !engine) return;
+      msgInput.value = "";
+      think(t);
+    });
+
+    // click stage: ask brain to walk toward click
+    stage.addEventListener("click", (e) => {
+      if (!engine || busy) return;
+      const rect = stage.getBoundingClientRect();
+      const tx = e.clientX - rect.left;
+      const ty = e.clientY - rect.top;
+      think(`Walk toward about x=${Math.round(tx)}, y=${Math.round(ty)} on the stage. Comment briefly.`);
+    });
+  </script>
+</body>
 </html>
