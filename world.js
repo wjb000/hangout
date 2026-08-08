@@ -46,12 +46,6 @@ export function createWorld() {
     { id: "bench", type: "seat", label: "🪑 bench", x: 700, y: 400, r: 18, solid: true, room: "yard", visionFill: "#864" },
   ];
 
-  const pickups = [
-    { id: "orb-a", label: "◆ orb", x: 200, y: 200, heldBy: null, color: "#6ec6ff" },
-    { id: "orb-b", label: "◆ orb", x: 750, y: 180, heldBy: null, color: "#ff7a6e" },
-    { id: "orb-c", label: "◆ orb", x: 500, y: 480, heldBy: null, color: "#7dffb3" },
-  ];
-
   // ambient third "agent" node (state machine, not full VLA)
   const node = {
     id: "node",
@@ -68,12 +62,12 @@ export function createWorld() {
     rooms,
     walls,
     props,
-    pickups,
+    pickups: [], // no collectibles — pure hangout
     node,
     time: 0,
-    beacon: null, // {x,y,t}
-    particles: [], // {x,y,vx,vy,life,color,size}
-    fxFlash: [], // {x,y,r,color,life}
+    beacon: null,
+    particles: [],
+    fxFlash: [],
   };
 }
 
@@ -207,18 +201,8 @@ export function nearestProp(world, x, y, maxD = 40) {
   return best;
 }
 
-export function nearestFreePickup(world, x, y, maxD = 36) {
-  let best = null;
-  let bestD = maxD;
-  for (const p of world.pickups) {
-    if (p.heldBy) continue;
-    const d = Math.hypot(p.x - x, p.y - y);
-    if (d < bestD) {
-      bestD = d;
-      best = p;
-    }
-  }
-  return best;
+export function nearestFreePickup() {
+  return null;
 }
 
 /**

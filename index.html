@@ -3,44 +3,42 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
-  <title>Hangout · Orb Heist</title>
+  <title>Hangout</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <div id="hud-top">
     <div id="scenario-bar">
-      <span id="scenario-title">Orb Heist</span>
-      <span id="phase-label">Phase 1/3</span>
-      <span id="scenario-timer">2:00</span>
+      <span id="scenario-title">Hangout</span>
+      <span id="phase-label">Bit &amp; Nox</span>
       <span id="brain-mode" title="click to cycle">brain: hybrid</span>
     </div>
     <div id="objective-row">
-      <div id="obj-arrow" title="objective direction">➤</div>
-      <div id="objective">▸ Loading objectives…</div>
+      <div id="objective">▸ Watch the AIs live in the void — talk, roam, react</div>
     </div>
-    <div id="goals"></div>
     <div id="status">booting…</div>
     <div id="rel-bar"></div>
   </div>
 
   <div id="onboard" class="hidden">
     <div class="onboard-card">
-      <h2>Orb Heist</h2>
-      <ol>
-        <li><b>Phase 1</b> — each agent grabs an orb</li>
-        <li><b>Phase 2</b> — Bit &amp; Nox meet</li>
-        <li><b>Phase 3</b> — lock all 3 orbs</li>
-      </ol>
+      <h2>Hangout</h2>
+      <p class="onboard-lead">Two autonomous agents share a small world. No scores. No orbs. Just presence.</p>
+      <ul class="onboard-list">
+        <li><b>Bit</b> — curious cyan glitch</li>
+        <li><b>Nox</b> — dry coral glitch</li>
+        <li>They pathfind, chat, use props, notice you</li>
+      </ul>
       <p class="onboard-keys">
-        Drag path · Click orb to assign · <kbd>Q</kbd> call · <kbd>F</kbd> handoff · <kbd>T</kbd> throw
+        Optional: drag path · <kbd>Q</kbd> call · <kbd>E</kbd> beacon · <kbd>C</kbd> cam · <kbd>D</kbd> debug
       </p>
-      <button type="button">Got it — let's go</button>
+      <button type="button">Enter hangout</button>
     </div>
   </div>
 
   <div id="phase-banner" class="hidden">
-    <div class="pb-title">PHASE 1</div>
-    <div class="pb-sub">Each grab an orb</div>
+    <div class="pb-title">HANGOUT</div>
+    <div class="pb-sub">they're live</div>
   </div>
 
   <canvas id="world" aria-label="simulation world"></canvas>
@@ -48,29 +46,12 @@
   <div id="vision-meta">◈ agent eye</div>
   <canvas id="minimap" width="176" height="110" aria-label="minimap"></canvas>
 
-  <div id="inv-bar">
-    <span>you hold: <b id="inv-label">—</b></span>
-    <span class="inv-hint">click orb = assign · drag = path · F handoff · T throw</span>
-  </div>
-
   <div id="toasts"></div>
   <div id="chatlog" aria-label="chat log"></div>
 
   <div id="debug" class="hidden">
-    <div class="dbg-title">debug <kbd>D</kbd> · reel <kbd>H</kbd> · brain click top</div>
+    <div class="dbg-title">debug <kbd>D</kbd> · brain click top</div>
     <pre id="dbg-body"></pre>
-  </div>
-
-  <div id="win-modal" class="hidden">
-    <div class="win-card">
-      <h1 id="win-heading">Mission complete</h1>
-      <p id="win-text"></p>
-      <p class="win-sub" id="win-stats"></p>
-      <div class="win-actions">
-        <button type="button" id="win-reel">Highlight reel</button>
-        <button type="button" id="win-again">Play again</button>
-      </div>
-    </div>
   </div>
 
   <div id="mobile-bar">
@@ -82,7 +63,7 @@
 
   <div id="progress"><i></i></div>
   <div id="hint">
-    <kbd>Q</kbd> call · <kbd>E</kbd> beacon · <kbd>C</kbd> cam · <kbd>F</kbd> handoff · <kbd>T</kbd> throw · drag path · <kbd>D</kbd> debug
+    pure AI hangout · <kbd>Q</kbd> call · <kbd>E</kbd> beacon · <kbd>C</kbd> cam · <kbd>D</kbd> debug
   </div>
 
   <script type="module" src="main.js"></script>

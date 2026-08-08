@@ -1,172 +1,252 @@
 /**
- * Ground-truth heuristic planner — hybrid fallback when VLM see-score is low.
+ * Social hangout planner — AIs explore, chat, use props, react to each other.
+ * No missions or orbs.
  */
-import { dist, roomAt, nearestFreePickup, hasLOS } from "./world.js";
+import { dist, roomAt, nearestProp, hasLOS } from "./world.js";
 
 /**
- * Plan next action from perfect world state (no vision needed).
  * @param {object} agent
- * @param {object} other partner agent
+ * @param {object} other
  * @param {object} human
  * @param {object} world
- * @param {object} ctx { phase, beacon, callPulse, assignTarget }
+ * @param {object} ctx
  */
 export function planFromTruth(agent, other, human, world, ctx = {}) {
-  const phase = ctx.phase || 1;
-  const assign = ctx.assignTarget; // {kind, id, x, y} from human click
-  const holding = !!agent.holding;
-  const otherHolding = !!other.holding;
-  const freeOrbs = world.pickups.filter((p) => !p.heldBy);
-  const nearOrb = nearestFreePickup(world, agent.x, agent.y, 200);
-  const grabOrb = nearestFreePickup(world, agent.x, agent.y, 40);
+  const assign = ctx.assignTarget;
+  const room = roomAt(world, agent.x, agent.y);
+  const otherRoom = roomAt(world, other.x, other.y);
+  const dOther = dist(agent, other);
+  const dHuman = dist(agent, human);
+  const nearProp = nearestProp(world, agent.x, agent.y, 48);
+  const close = dOther < 75 && hasLOS(world, agent.x, agent.y, other.x, other.y);
+  const midClose = dOther < 140;
+  const rel = ctx.rel ?? 0.1;
+  const tick = agent.ticks || 0;
 
-  // Human assignment (for this agent, or unscoped)
+  // Human assignment
   if (assign && (!assign.forAgent || assign.forAgent === agent.id)) {
-    if (assign.kind === "orb") {
-      const orb = world.pickups.find((p) => p.id === assign.id && !p.heldBy);
-      if (orb) {
-        const d = dist(agent, orb);
-        if (d < 40) {
-          return act("grab", "forward", 1, `grabbing ${orb.id}`, "got it");
-        }
-        return goTo(agent, orb.x, orb.y, `seek ${orb.id}`);
-      }
-    }
     if (assign.kind === "agent") {
-      return goTo(agent, other.x, other.y, "meet assigned", "toward");
+      return goTo(agent, other.x, other.y, "meet friend", "MEET");
     }
     if (assign.kind === "human") {
-      return { see: "truth:human", move: "follow_human", steps: 5, act: "none", say: "", mood: "curious", goal: "follow you", _src: "planner" };
+      return navSocial(agent, human.x, human.y, "join human", "YOU", "follow_human");
     }
-    if (assign.kind === "point") {
-      return goTo(agent, assign.x, assign.y, "go to point");
+    if (assign.kind === "prop" || assign.kind === "point") {
+      return goTo(agent, assign.x, assign.y, "check spot", "GO");
     }
   }
 
-  // Call / beacon
-  if (ctx.callPulse > 0 && dist(agent, human) > 50) {
-    return { see: "truth:call", move: "follow_human", steps: 5, act: "none", say: "coming!", mood: "happy", goal: "answer call", _src: "planner" };
-  }
-  if (world.beacon && dist(agent, world.beacon) > 30) {
-    return { see: "truth:beacon", move: "goto_beacon", steps: 6, act: "none", say: "", mood: "curious", goal: "beacon", _src: "planner" };
+  if (ctx.callPulse > 0 && dHuman > 55) {
+    return {
+      see: "truth:call",
+      move: "nav",
+      _nav: { x: human.x, y: human.y },
+      steps: 5,
+      act: "none",
+      say: agent.id === "bit" ? "coming!" : "fine.",
+      mood: "curious",
+      goal: "answer human",
+      thought: "COME",
+      _src: "planner",
+    };
   }
 
-  // Phase-aware goals
-  // Phase 1: each get an orb
-  // Phase 2: meet partner
-  // Phase 3: get remaining orbs together
-  if (phase === 1) {
-    if (!holding) {
-      if (grabOrb) return act("grab", "forward", 1, `orb@${Math.round(dist(agent, grabOrb))}`, "mine");
-      if (nearOrb) return goTo(agent, nearOrb.x, nearOrb.y, `hunt ${nearOrb.id}`);
-      // explore toward unexplored-ish center of rooms without orbs held
-      const target = freeOrbs[0] || { x: 480, y: 300 };
-      return goTo(agent, target.x, target.y, "search orbs");
-    }
-    // has orb — wait for partner or go center
-    if (!otherHolding) {
+  if (world.beacon && dist(agent, world.beacon) > 36) {
+    return goTo(agent, world.beacon.x, world.beacon.y, "check beacon", "PING");
+  }
+
+  // Social: if far, sometimes approach partner
+  if (dOther > 200 && Math.random() < 0.55 + rel * 0.2) {
+    return goTo(agent, other.x, other.y, `find ${other.name}`, "FIND");
+  }
+
+  // Close: chat / emote / orbit
+  if (close) {
+    const r = Math.random();
+    if (r < 0.35) {
       return {
-        see: "truth:have orb wait",
+        see: `truth:with ${other.name}`,
         move: "idle",
         steps: 0,
         act: "wave",
-        say: "got one",
+        say: banter(agent, other, rel),
         mood: "happy",
-        goal: "wait for partner orb",
+        goal: "hang with " + other.name,
+        thought: "CHAT",
         _src: "planner",
       };
     }
-    // both have → phase will advance; approach
-    return goTo(agent, other.x, other.y, "rendezvous", "toward");
-  }
-
-  if (phase === 2) {
-    const d = dist(agent, other);
-    const sameRoom =
-      roomAt(world, agent.x, agent.y)?.id === roomAt(world, other.x, other.y)?.id;
-    if (d < 70 && sameRoom && hasLOS(world, agent.x, agent.y, other.x, other.y)) {
+    if (r < 0.55) {
       return {
-        see: "truth:met",
+        see: `truth:near ${other.name}`,
+        move: "orbit_other",
+        steps: 4,
+        act: "none",
+        say: Math.random() < 0.4 ? banter(agent, other, rel) : "",
+        mood: "curious",
+        goal: "circle " + other.name,
+        thought: "ORBIT",
+        _src: "planner",
+      };
+    }
+    if (r < 0.7 && nearProp) {
+      return {
+        see: `truth:use ${nearProp.id}`,
         move: "idle",
         steps: 0,
-        act: "wave",
-        say: "team up",
-        mood: "happy",
-        goal: "met partner",
+        act: "use",
+        say: "",
+        mood: "curious",
+        goal: `use ${nearProp.id}`,
+        thought: "USE",
         _src: "planner",
       };
     }
-    return goTo(agent, other.x, other.y, "meet partner", "toward");
+    // drift slightly
+    return wander(agent, room, "linger");
   }
 
-  // Phase 3: remaining free orbs
-  if (!holding && grabOrb) {
-    return act("grab", "forward", 1, "last orbs", "yes");
+  // Same room but not close — walk over
+  if (room && otherRoom && room.id === otherRoom.id && dOther > 80) {
+    return goTo(agent, other.x, other.y, "walk over", "HI");
   }
-  if (!holding && nearOrb) {
-    return goTo(agent, nearOrb.x, nearOrb.y, `secure ${nearOrb.id}`);
+
+  // Mid distance: approach or explore
+  if (midClose && Math.random() < 0.4 + rel * 0.15) {
+    return goTo(agent, other.x, other.y, "rejoin", "JOIN");
   }
-  if (freeOrbs.length) {
-    // split: bit prefers lower index, nox higher
-    const idx = agent.id === "bit" ? 0 : freeOrbs.length - 1;
-    const orb = freeOrbs[Math.max(0, idx)];
-    return goTo(agent, orb.x, orb.y, `split hunt ${orb.id}`);
+
+  // Use interesting prop in room
+  if (nearProp && Math.random() < 0.25) {
+    return {
+      see: `truth:prop ${nearProp.id}`,
+      move: "idle",
+      steps: 0,
+      act: "use",
+      say: propLine(agent, nearProp),
+      mood: "curious",
+      goal: `fiddle with ${nearProp.id}`,
+      thought: "USE",
+      _src: "planner",
+    };
   }
-  // all held — celebrate near partner
-  if (dist(agent, other) > 80) {
-    return goTo(agent, other.x, other.y, "victory lap", "toward");
+
+  // Head toward a prop in world for flavor
+  if (Math.random() < 0.3 && world.props.length) {
+    const p = world.props[Math.floor(Math.random() * world.props.length)];
+    return goTo(agent, p.x, p.y, `visit ${p.id}`, "GO");
   }
-  return {
-    see: "truth:done",
-    move: "orbit_other",
-    steps: 4,
-    act: "wave",
-    say: "we did it",
-    mood: "happy",
-    goal: "celebrate",
-    _src: "planner",
-  };
+
+  // Visit another room center
+  if (Math.random() < 0.35) {
+    const rooms = world.rooms;
+    const dest = rooms[Math.floor(Math.random() * rooms.length)];
+    return goTo(
+      agent,
+      dest.x + dest.w * 0.5,
+      dest.y + dest.h * 0.5,
+      `explore ${dest.name}`,
+      "ROOM"
+    );
+  }
+
+  // Human curiosity
+  if (dHuman < 100 && Math.random() < 0.2) {
+    return {
+      see: "truth:human near",
+      move: "nav",
+      _nav: { x: human.x, y: human.y },
+      steps: 3,
+      act: Math.random() < 0.5 ? "wave" : "none",
+      say: agent.id === "bit" ? "oh — hi" : "…you again",
+      mood: "curious",
+      goal: "notice human",
+      thought: "YOU",
+      _src: "planner",
+    };
+  }
+
+  return wander(agent, room, "wander");
 }
 
-function goTo(agent, x, y, see, moveOverride) {
-  const dx = x - agent.x;
-  const dy = y - agent.y;
-  const d = Math.hypot(dx, dy) || 1;
-  const steps = Math.max(2, Math.min(6, Math.round(d / 40)));
-  // _nav drives wall-aware pathfinding in the sim
+function wander(agent, room, tag) {
+  const ang = (agent.angle || 0) + (Math.random() - 0.5) * 1.8;
+  const dist = 60 + Math.random() * 100;
+  const x = agent.x + Math.cos(ang) * dist;
+  const y = agent.y + Math.sin(ang) * dist;
+  return goTo(agent, x, y, tag, "WALK");
+}
+
+function goTo(agent, x, y, see, thought = "GO") {
   return {
     see: `truth:${see}`,
-    move: moveOverride || "nav",
-    steps,
+    move: "nav",
+    steps: 4,
     act: "none",
     look_at: "none",
     say: "",
     mood: "curious",
     goal: see,
-    thought: see.split(" ")[0].toUpperCase().slice(0, 6),
+    thought,
     _nav: { x, y },
-    _face: Math.atan2(dy, dx),
+    _face: Math.atan2(y - agent.y, x - agent.x),
     _src: "planner",
   };
 }
 
-function act(actName, move, steps, see, say = "") {
+function navSocial(agent, x, y, see, thought, moveLabel) {
   return {
     see: `truth:${see}`,
-    move,
-    steps,
-    act: actName,
-    say,
-    mood: actName === "grab" ? "happy" : "curious",
+    move: moveLabel || "nav",
+    steps: 5,
+    act: "none",
+    say: "",
+    mood: "curious",
     goal: see,
-    thought: actName === "grab" ? "GRAB" : "ACT",
+    thought,
+    _nav: { x, y },
     _src: "planner",
   };
+}
+
+function banter(agent, other, rel) {
+  const bitLines = [
+    `hey ${other.name}`,
+    "this place hums",
+    "wanna roam?",
+    "coffee later?",
+    "void's cozy today",
+    "i like your glow",
+  ];
+  const noxLines = [
+    `hm ${other.name}`,
+    "don't get weird",
+    "lab's quieter",
+    "fine. company.",
+    "still here?",
+    "…hi",
+  ];
+  const cold = [
+    "space",
+    "whatever",
+    "moving on",
+  ];
+  const pool =
+    rel < -0.2 ? cold : agent.id === "bit" ? bitLines : noxLines;
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+
+function propLine(agent, prop) {
+  if (prop.id === "coffee") return agent.id === "bit" ? "warm pixels~" : "caffeine. sure.";
+  if (prop.id === "terminal") return agent.id === "bit" ? "pretty logs" : "noisy code";
+  if (prop.id === "whiteboard") return "notes…";
+  if (prop.id === "couch") return agent.id === "bit" ? "soft!" : "five minutes";
+  if (prop.id === "tree") return "green.";
+  return "";
 }
 
 /**
- * Merge VLM action with planner: if see-score low or forceHeuristic, use planner.
- * If medium score, prefer VLM move but allow planner grab when orb in range.
+ * Hybrid: VLM when see-score OK, else social planner.
  */
 export function hybridDecide(vlmAction, seeScore, agent, other, human, world, ctx) {
   const planner = planFromTruth(agent, other, human, world, ctx);
@@ -176,21 +256,16 @@ export function hybridDecide(vlmAction, seeScore, agent, other, human, world, ct
     return { ...planner, _hybrid: force ? "heuristic" : "planner-fallback" };
   }
 
-  // high confidence vision — trust VLM but rescue obvious grabs
   if (seeScore >= 0.45) {
-    const grabOrb = nearestFreePickup(world, agent.x, agent.y, 38);
-    if (grabOrb && !agent.holding && vlmAction.act !== "grab") {
-      return {
-        ...vlmAction,
-        act: "grab",
-        see: (vlmAction.see || "") + " +rescue-grab",
-        _hybrid: "vlm+rescue",
-      };
-    }
-    return { ...vlmAction, _hybrid: "vlm", _src: "vlm" };
+    // keep VLM but ensure we have social-ish defaults
+    return {
+      ...vlmAction,
+      thought: vlmAction.thought || (vlmAction.say ? "CHAT" : vlmAction.move || "…"),
+      _hybrid: "vlm",
+      _src: "vlm",
+    };
   }
 
-  // medium: blend — use planner navigation, keep VLM speech if any
   return {
     ...planner,
     say: vlmAction.say || planner.say,
