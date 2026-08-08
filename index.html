@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Hangout</title>
+  <title>Hangout · VLA</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -18,6 +18,33 @@
     #stage {
       position: fixed;
       inset: 0;
+    }
+
+    /* Hidden canvas used as the VLA camera (what the model sees) */
+    #vision {
+      position: fixed;
+      right: 10px;
+      top: 10px;
+      width: 160px;
+      height: 100px;
+      border: 1px solid #222;
+      image-rendering: pixelated;
+      opacity: 0.85;
+      z-index: 30;
+      background: #000;
+      pointer-events: none;
+    }
+
+    #vision-label {
+      position: fixed;
+      right: 10px;
+      top: 114px;
+      width: 160px;
+      text-align: center;
+      color: #333;
+      font-size: 10px;
+      z-index: 30;
+      pointer-events: none;
     }
 
     .sprite {
@@ -36,7 +63,7 @@
       position: absolute;
       inset: 8px 6px 4px;
       border-radius: 4px 4px 2px 2px;
-      transition: background 0.3s, box-shadow 0.3s;
+      transition: background 0.25s, box-shadow 0.25s;
     }
 
     .sprite .head {
@@ -79,7 +106,6 @@
       to { transform: translateY(-3px); }
     }
 
-    /* Bit — cyan */
     .sprite.bit .body {
       background: #6ec6ff;
       box-shadow: 0 0 14px rgba(110, 198, 255, 0.4);
@@ -90,7 +116,6 @@
     .sprite.bit.happy .body { background: #7dffb3; box-shadow: 0 0 14px rgba(125, 255, 179, 0.45); }
     .sprite.bit.curious .body { background: #ffe08a; box-shadow: 0 0 14px rgba(255, 224, 138, 0.4); }
 
-    /* Nox — coral / warm */
     .sprite.nox .body {
       background: #ff7a6e;
       box-shadow: 0 0 14px rgba(255, 122, 110, 0.4);
@@ -108,7 +133,6 @@
       50% { transform: translateY(-4px); }
     }
 
-    /* Minecraft chat — only spoken lines */
     #chatlog {
       position: fixed;
       left: 8px;
@@ -142,13 +166,12 @@
 
     #status {
       position: fixed;
-      right: 10px;
-      bottom: 10px;
-      color: #222;
-      font-size: 10px;
+      left: 10px;
+      top: 10px;
+      color: #333;
+      font-size: 11px;
       z-index: 10;
-      max-width: 40vw;
-      text-align: right;
+      max-width: calc(100vw - 200px);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -156,12 +179,12 @@
     }
 
     #status.err {
-      color: #663333;
+      color: #a44;
       pointer-events: auto;
       cursor: pointer;
     }
 
-    #status.warn { color: #554422; }
+    #status.warn { color: #886622; }
 
     #progress {
       position: fixed;
@@ -184,7 +207,7 @@
 </head>
 <body>
   <div id="stage">
-    <div class="sprite bit walk" id="sprite-bit" aria-label="Bit">
+    <div class="sprite bit" id="sprite-bit" aria-label="Bit">
       <div class="head"></div>
       <div class="eye l"></div>
       <div class="eye r"></div>
@@ -192,7 +215,7 @@
       <div class="leg l"></div>
       <div class="leg r"></div>
     </div>
-    <div class="sprite nox walk" id="sprite-nox" aria-label="Nox">
+    <div class="sprite nox" id="sprite-nox" aria-label="Nox">
       <div class="head"></div>
       <div class="eye l"></div>
       <div class="eye r"></div>
@@ -201,27 +224,43 @@
       <div class="leg r"></div>
     </div>
   </div>
+
+  <!-- Live VLA camera feed (what the model is seeing) -->
+  <canvas id="vision" width="320" height="200" aria-label="VLA vision feed"></canvas>
+  <div id="vision-label">VLA eye · SmolVLM</div>
+
   <div id="chatlog" aria-label="chat log"></div>
-  <div id="status">waking…</div>
+  <div id="status">booting VLA…</div>
   <div id="progress"><i></i></div>
 
   <script type="module">
-    import { CreateMLCEngine } from "https://esm.run/@mlc-ai/web-llm";
+    /**
+     * In-browser Vision-Language-Action loop:
+     *   1. Render environment frame (camera)
+     *   2. SmolVLM sees the frame + instruction
+     *   3. Model outputs action JSON
+     *   4. Environment executes move
+     *
+     * Uses HuggingFaceTB/SmolVLM-256M-Instruct via transformers.js + WebGPU.
+     * (Full robotics SmolVLA weights aren't browser-packaged; this is the
+     *  same V→L→A control loop with a browser-runnable VLM action head.)
+     */
+    import {
+      AutoProcessor,
+      AutoModelForVision2Seq,
+      RawImage,
+    } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.5.1";
 
-    const MODELS = [
-      "SmolLM2-360M-Instruct-q4f16_1-MLC",
-      "Qwen2.5-0.5B-Instruct-q4f16_1-MLC",
-      "Llama-3.2-1B-Instruct-q4f16_1-MLC",
-    ];
-
-    // Environment sim: LLM issues move intents; physics only executes them.
-    const STEP_PX = 42;          // one "step" ≈ this many pixels
-    const MOVE_SPEED = 110;      // px/sec while executing an LLM step budget
+    const MODEL_ID = "HuggingFaceTB/SmolVLM-256M-Instruct";
+    const STEP_PX = 44;
+    const MOVE_SPEED = 115;
     const NEAR = 90;
     const PAD = 28;
     const CHAT_MAX = 16;
     const CHAT_FADE_MS = 14000;
     const CHAT_REMOVE_MS = 16000;
+    const VISION_W = 320;
+    const VISION_H = 200;
 
     const DIRS = {
       left:      { vx: -1, vy:  0 },
@@ -239,8 +278,12 @@
     const statusEl = document.getElementById("status");
     const progressEl = document.getElementById("progress");
     const progressBar = progressEl.querySelector("i");
+    const visionCanvas = document.getElementById("vision");
+    const visionCtx = visionCanvas.getContext("2d");
+    const visionLabel = document.getElementById("vision-label");
 
-    let engine = null;
+    let processor = null;
+    let model = null;
     let running = true;
     let lastFrame = 0;
     const transcript = [];
@@ -258,7 +301,6 @@
         .replace(/"/g, "&quot;");
     }
 
-    /** Chat log: only spoken lines */
     function logSpeech(name, text, cssClass) {
       const msg = String(text || "").trim();
       if (!msg) return;
@@ -279,16 +321,15 @@
     }
 
     function createAgent(cfg) {
-      const el = document.getElementById(cfg.elId);
       return {
         id: cfg.id,
         name: cfg.name,
         cssClass: cfg.cssClass,
+        color: cfg.color,
         persona: cfg.persona,
-        el,
+        el: document.getElementById(cfg.elId),
         x: 0,
         y: 0,
-        // intentional motion — ONLY written by LLM (or wall halt)
         intent: { vx: 0, vy: 0, remaining: 0, label: "idle" },
         move: "idle",
         mood: "curious",
@@ -298,8 +339,8 @@
         facing: 1,
         ticks: 0,
         memory: [],
-        envEvents: [], // walls / blocked / bumped — fed back to LLM
-        lastAction: null,
+        envEvents: [],
+        lastSaw: "",
       };
     }
 
@@ -308,8 +349,8 @@
       name: "Bit",
       elId: "sprite-bit",
       cssClass: "bit",
-      persona:
-        "Bit is optimistic, curious, a little naive. Cyan glitch. Loves company and patterns.",
+      color: "#6ec6ff",
+      persona: "optimistic cyan glitch who likes company",
       goal0: "find the other spark",
     });
 
@@ -318,15 +359,15 @@
       name: "Nox",
       elId: "sprite-nox",
       cssClass: "nox",
-      persona:
-        "Nox is dry, teasing, sharp. Coral glitch. Acts cool but secretly likes Bit.",
-      goal0: "pretend not to care while circling Bit",
+      color: "#ff7a6e",
+      persona: "dry coral glitch who teases but sticks around",
+      goal0: "circle Bit without admitting it",
     });
 
     const agents = [bit, nox];
 
-    function otherOf(agent) {
-      return agent === bit ? nox : bit;
+    function otherOf(a) {
+      return a === bit ? nox : bit;
     }
 
     function dist(a, b) {
@@ -362,55 +403,39 @@
 
     function pushEnv(agent, event) {
       agent.envEvents.push(event);
-      if (agent.envEvents.length > 6) agent.envEvents.shift();
+      if (agent.envEvents.length > 5) agent.envEvents.shift();
     }
 
     function resolveDir(agent, name) {
       let dir = String(name || "idle").toLowerCase().replace(/[_\s-]/g, "");
-      if (dir === "none" || dir === "stop" || dir === "stay" || dir === "idle") {
+      if (["none", "stop", "stay", "idle"].includes(dir)) {
         return { dir: "idle", vx: 0, vy: 0 };
       }
+      const o = otherOf(agent);
       if (dir === "toward" || dir === "approach") {
-        const o = otherOf(agent);
         const dx = o.x - agent.x;
         const dy = o.y - agent.y;
         if (Math.abs(dx) < 4 && Math.abs(dy) < 4) return { dir: "idle", vx: 0, vy: 0 };
         if (Math.abs(dx) > 20 && Math.abs(dy) > 20) {
           const hs = dx >= 0 ? "right" : "left";
           const vs = dy >= 0 ? "down" : "up";
-          dir = vs === "up" ? (hs === "left" ? "upleft" : "upright")
-                            : (hs === "left" ? "downleft" : "downright");
-        } else if (Math.abs(dx) >= Math.abs(dy)) {
-          dir = dx >= 0 ? "right" : "left";
-        } else {
-          dir = dy >= 0 ? "down" : "up";
-        }
+          dir = (vs === "up" ? "up" : "down") + hs;
+        } else if (Math.abs(dx) >= Math.abs(dy)) dir = dx >= 0 ? "right" : "left";
+        else dir = dy >= 0 ? "down" : "up";
       } else if (dir === "away" || dir === "flee") {
-        const o = otherOf(agent);
         const dx = agent.x - o.x;
         const dy = agent.y - o.y;
         if (Math.abs(dx) > 20 && Math.abs(dy) > 20) {
           const hs = dx >= 0 ? "right" : "left";
           const vs = dy >= 0 ? "down" : "up";
-          dir = vs === "up" ? (hs === "left" ? "upleft" : "upright")
-                            : (hs === "left" ? "downleft" : "downright");
-        } else if (Math.abs(dx) >= Math.abs(dy)) {
-          dir = dx >= 0 ? "right" : "left";
-        } else {
-          dir = dy >= 0 ? "down" : "up";
-        }
+          dir = (vs === "up" ? "up" : "down") + hs;
+        } else if (Math.abs(dx) >= Math.abs(dy)) dir = dx >= 0 ? "right" : "left";
+        else dir = dy >= 0 ? "down" : "up";
       }
-      if (!DIRS[dir]) {
-        // unknown → stay; never invent random walks outside LLM
-        return { dir: "idle", vx: 0, vy: 0 };
-      }
+      if (!DIRS[dir]) return { dir: "idle", vx: 0, vy: 0 };
       return { dir, vx: DIRS[dir].vx, vy: DIRS[dir].vy };
     }
 
-    /**
-     * LLM-only: queue movement in the environment.
-     * steps = how far to walk (1–8). Environment sim executes it over time.
-     */
     function issueMove(agent, moveName, steps = 3) {
       const n = Math.max(0, Math.min(8, Number(steps) || 0));
       const { dir, vx, vy } = resolveDir(agent, moveName);
@@ -420,12 +445,7 @@
         agent.el.classList.remove("walk");
         return;
       }
-      agent.intent = {
-        vx,
-        vy,
-        remaining: n * STEP_PX,
-        label: dir,
-      };
+      agent.intent = { vx, vy, remaining: n * STEP_PX, label: dir };
       if (Math.abs(vx) > 0.01) setFacing(agent, vx > 0 ? 1 : -1);
       agent.el.classList.add("walk");
     }
@@ -448,36 +468,32 @@
 
     function remember(agent, line) {
       agent.memory.push(line);
-      if (agent.memory.length > 6) agent.memory.shift();
+      if (agent.memory.length > 5) agent.memory.shift();
     }
 
     function applyAction(agent, action) {
       if (!action || typeof action !== "object") return;
-      agent.lastAction = action;
-
       if (action.goal) agent.goal = String(action.goal).slice(0, 80);
       if (action.mood) setMood(agent, String(action.mood).toLowerCase());
       if (typeof action.speed === "number") {
         agent.speedMul = Math.max(0.45, Math.min(1.8, action.speed));
       }
+      // optional: model narrates what it saw
+      if (action.see) agent.lastSaw = String(action.see).slice(0, 100);
 
-      // Movement MUST come from the model into the environment
       const move = action.move != null ? action.move : "idle";
       const steps = action.steps != null ? action.steps : 3;
       issueMove(agent, move, steps);
-
       if (action.say) say(agent, action.say);
 
-      remember(
-        agent,
-        `CMD move=${agent.move} steps=${steps}` +
-          (action.say ? ` say="${String(action.say).slice(0, 36)}"` : "")
-      );
+      remember(agent, `VLA move=${agent.move} steps=${steps}` +
+        (action.say ? ` “${String(action.say).slice(0, 30)}”` : ""));
     }
 
     function parseAction(raw) {
       if (!raw) return { move: "idle", steps: 0, say: "" };
       let t = raw.trim();
+      // strip assistant preamble if present
       const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/i);
       if (fence) t = fence[1].trim();
       const brace = t.match(/\{[\s\S]*\}/);
@@ -496,110 +512,182 @@
         else if (lower.includes("right")) move = "right";
         else if (lower.includes("up")) move = "up";
         else if (lower.includes("down")) move = "down";
-        return {
-          move,
-          steps: 3,
-          say: raw.replace(/[{}[\]"]/g, "").slice(0, 80),
-          mood: "curious",
-        };
+        return { move, steps: 3, say: "", mood: "curious" };
       }
     }
 
-    function region(agent) {
+    // ── Vision camera: paint what the VLA "sees" ──────────────
+    function captureFrame(agent) {
       const { w, h } = stageSize();
-      const cx = agent.x / w;
-      const cy = agent.y / h;
-      const hs = cx < 0.33 ? "west" : cx > 0.66 ? "east" : "center";
-      const vs = cy < 0.33 ? "north" : cy > 0.66 ? "south" : "mid";
-      return `${vs}-${hs}`;
+      const other = otherOf(agent);
+      const ctx = visionCtx;
+      const cw = VISION_W;
+      const ch = VISION_H;
+      visionCanvas.width = cw;
+      visionCanvas.height = ch;
+
+      // black void
+      ctx.fillStyle = "#000";
+      ctx.fillRect(0, 0, cw, ch);
+
+      // wall border (visible environment bounds)
+      ctx.strokeStyle = "#444";
+      ctx.lineWidth = 4;
+      ctx.strokeRect(2, 2, cw - 4, ch - 4);
+
+      // map world → camera
+      const sx = (cw - 16) / w;
+      const sy = (ch - 16) / h;
+      const mapX = (x) => 8 + x * sx;
+      const mapY = (y) => 8 + y * sy;
+
+      // faint grid so spatial structure is visible to the VLM
+      ctx.strokeStyle = "#151515";
+      ctx.lineWidth = 1;
+      for (let i = 1; i < 4; i++) {
+        const gx = (cw * i) / 4;
+        const gy = (ch * i) / 4;
+        ctx.beginPath();
+        ctx.moveTo(gx, 8);
+        ctx.lineTo(gx, ch - 8);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(8, gy);
+        ctx.lineTo(cw - 8, gy);
+        ctx.stroke();
+      }
+
+      function drawEntity(a, isSelf) {
+        const x = mapX(a.x);
+        const y = mapY(a.y);
+        const size = isSelf ? 18 : 16;
+
+        // body
+        ctx.fillStyle = a.color;
+        ctx.fillRect(x - size / 2, y - size / 2, size, size);
+
+        // direction tick (shows facing / last intent)
+        const d = DIRS[a.move] || { vx: a.facing, vy: 0 };
+        ctx.strokeStyle = "#fff";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(x + d.vx * 14, y + d.vy * 14);
+        ctx.stroke();
+
+        // label
+        ctx.font = "bold 11px monospace";
+        ctx.fillStyle = isSelf ? "#ffff55" : "#ffffff";
+        ctx.textAlign = "center";
+        ctx.fillText(isSelf ? `YOU:${a.name}` : a.name, x, y - size / 2 - 4);
+      }
+
+      drawEntity(other, false);
+      drawEntity(agent, true);
+
+      // proximity ring when close
+      if (dist(agent, other) < NEAR) {
+        const x = mapX(agent.x);
+        const y = mapY(agent.y);
+        ctx.strokeStyle = "#55ff55";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(x, y, 22, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+
+      // HUD strip on frame
+      ctx.fillStyle = "rgba(0,0,0,0.65)";
+      ctx.fillRect(0, ch - 18, cw, 18);
+      ctx.fillStyle = "#aaa";
+      ctx.font = "10px monospace";
+      ctx.textAlign = "left";
+      ctx.fillText(
+        `${agent.name} cam  d=${Math.round(dist(agent, other))}  ${agent.move}`,
+        6,
+        ch - 5
+      );
+
+      visionLabel.textContent = `VLA eye · ${agent.name} seeing`;
+
+      // return as data URL for the model
+      return visionCanvas.toDataURL("image/png");
     }
 
-    function wallProximity(agent) {
-      const { w, h } = stageSize();
-      const hits = [];
-      if (agent.x <= PAD + 8) hits.push("near west wall");
-      if (agent.x >= w - PAD - 8) hits.push("near east wall");
-      if (agent.y <= PAD + 8) hits.push("near north wall");
-      if (agent.y >= h - PAD - 8) hits.push("near south wall");
-      return hits;
-    }
-
-    function envSnapshot(agent) {
-      const { w, h } = stageSize();
+    function vlaPrompt(agent) {
       const other = otherOf(agent);
       const d = Math.round(dist(agent, other));
-      const walls = wallProximity(agent);
-      return {
-        w,
-        h,
-        d,
-        walls,
-        near: d < NEAR,
-        intentLeft: Math.round(agent.intent.remaining),
-      };
-    }
-
-    function systemPrompt(agent) {
-      const snap = envSnapshot(agent);
-      const other = otherOf(agent);
-      const recentChat = transcript
-        .slice(-6)
-        .map((m) => `<${m.name}> ${m.text}`)
-        .join("\n");
       const events = agent.envEvents.length
-        ? agent.envEvents.map((e) => "- " + e).join("\n")
-        : "- (none)";
-      // clear consumed events after reading into prompt (fresh each think)
-      const eventBlock = events;
+        ? agent.envEvents.join("; ")
+        : "none";
       agent.envEvents = [];
 
-      return `You are ${agent.name}. You CONTROL your body in a 2D environment.
-The environment is a black rectangle ${snap.w}x${snap.h} pixels.
-Origin top-left. Walls at the edges. You cannot walk through walls or the other sprite.
+      const chat = transcript
+        .slice(-4)
+        .map((m) => `<${m.name}> ${m.text}`)
+        .join(" | ");
 
-=== ENVIRONMENT STATE (ground truth) ===
-You @ (${Math.round(agent.x)}, ${Math.round(agent.y)}) region=${region(agent)}
-Your last command: ${agent.move} | steps left in world: ${snap.intentLeft}px
-${other.name} @ (${Math.round(other.x)}, ${Math.round(other.y)}) region=${region(other)} heading=${other.move}
-Distance to ${other.name}: ${snap.d}px ${snap.near ? "CLOSE" : "FAR"}
-Wall sensors: ${snap.walls.length ? snap.walls.join(", ") : "clear"}
-Environment events since last turn:
-${eventBlock}
-
-=== YOU ===
-${agent.persona}
-Goal: ${agent.goal}
-Mood: ${agent.mood}
-Last you said: ${JSON.stringify(agent.lastSaid || "")}
-${other.name} last said: ${JSON.stringify(other.lastSaid || "")}
-
-Chat (spoken aloud only):
-${recentChat || "(silence)"}
-
-Private memory:
-${agent.memory.length ? agent.memory.map((m) => "- " + m).join("\n") : "- (empty)"}
-
-You MUST issue the next body command. The sim will EXECUTE your move in the world.
-Reply with ONLY JSON:
-{"goal":"short aim","move":"left|right|up|down|upleft|upright|downleft|downright|toward|away|idle","steps":1-8,"say":"spoken words max 14 words or \\"\\"","mood":"idle|think|happy|wave|curious","speed":0.5-1.6}
-
-Rules:
-- "move"+"steps" is how your body walks THIS turn. steps= how far (1 small, 8 long).
-- toward/away are relative to ${other.name} and resolve in the environment.
-- If you hit a wall last turn, pick a different move.
-- Interact with ${other.name}: approach, flee, circle, talk.
-- "say" is the only public chat. Speak when it matters (often when CLOSE).
-- Stay in character as ${agent.name}. Always choose a move (or idle).`;
+      // Keep prompt short — small VLMs follow short action schemas better
+      return (
+        `You are ${agent.name}, a sprite in a top-down black room. ` +
+        `The image is YOUR camera: yellow YOU:${agent.name} is you, the other colored square is ${other.name}. ` +
+        `White tick = facing. Green ring = close. Gray border = walls.\n` +
+        `State: dist_to_${other.name}=${d}px, last_move=${agent.move}, goal=${agent.goal}, events=${events}. ` +
+        `Recent talk: ${chat || "silence"}.\n` +
+        `Persona: ${agent.persona}.\n` +
+        `Look at the image. Choose ONE action. Reply with ONLY JSON, no markdown:\n` +
+        `{"see":"brief what you see","move":"left|right|up|down|upleft|upright|downleft|downright|toward|away|idle","steps":1-6,"say":"max 12 words or empty","mood":"idle|think|happy|curious","goal":"short"}`
+      );
     }
 
-    /** Physics: only executes LLM intent; walls/bumps report back as env events */
+    async function vlaInfer(agent) {
+      const dataUrl = captureFrame(agent);
+      const image = await RawImage.fromURL(dataUrl);
+      const prompt = vlaPrompt(agent);
+
+      const messages = [
+        {
+          role: "user",
+          content: [
+            { type: "image" },
+            { type: "text", text: prompt },
+          ],
+        },
+      ];
+
+      const text = processor.apply_chat_template(messages, {
+        add_generation_prompt: true,
+      });
+
+      const inputs = await processor(text, [image], {
+        // keep memory light for dual-agent loop
+      });
+
+      const outputs = await model.generate({
+        ...inputs,
+        max_new_tokens: 96,
+        do_sample: true,
+        temperature: 0.7,
+        top_p: 0.9,
+      });
+
+      // Decode only the newly generated tokens when possible
+      const decoded = processor.batch_decode(outputs, {
+        skip_special_tokens: true,
+      });
+      let raw = decoded[0] || "";
+      // strip any echoed prompt / role tags
+      const asst = raw.split("Assistant:").pop() || raw;
+      const lastBrace = asst.includes("{") ? asst.slice(asst.indexOf("{")) : asst;
+      return lastBrace.trim();
+    }
+
     function simulate(agent, dt) {
       const intent = agent.intent;
       if (!intent || intent.remaining <= 0 || (intent.vx === 0 && intent.vy === 0)) {
         agent.el.classList.remove("walk");
         return;
       }
-
       agent.el.classList.add("walk");
       const sp = MOVE_SPEED * agent.speedMul;
       const step = Math.min(intent.remaining, sp * dt);
@@ -608,23 +696,21 @@ Rules:
       const { w, h } = stageSize();
 
       let hit = null;
-      if (nx <= PAD) { nx = PAD; hit = "hit west wall — movement stopped"; }
-      else if (nx >= w - PAD) { nx = w - PAD; hit = "hit east wall — movement stopped"; }
-      if (ny <= PAD) { ny = PAD; hit = hit || "hit north wall — movement stopped"; }
-      else if (ny >= h - PAD) { ny = h - PAD; hit = hit || "hit south wall — movement stopped"; }
+      if (nx <= PAD) { nx = PAD; hit = "hit west wall"; }
+      else if (nx >= w - PAD) { nx = w - PAD; hit = "hit east wall"; }
+      if (ny <= PAD) { ny = PAD; hit = hit || "hit north wall"; }
+      else if (ny >= h - PAD) { ny = h - PAD; hit = hit || "hit south wall"; }
 
-      // collision with other sprite
       const other = otherOf(agent);
       const d = Math.hypot(nx - other.x, ny - other.y);
       if (d < 30 && d > 0.01) {
         const push = (30 - d) / d;
         nx += (nx - other.x) * push * 0.6;
         ny += (ny - other.y) * push * 0.6;
-        // if still closing into them while moving toward, stop intent
         const closing =
-          (intent.vx * (other.x - agent.x) + intent.vy * (other.y - agent.y)) > 0;
+          intent.vx * (other.x - agent.x) + intent.vy * (other.y - agent.y) > 0;
         if (closing && d < 32) {
-          haltIntent(agent, `bumped into ${other.name} — movement stopped`);
+          haltIntent(agent, `bumped ${other.name}`);
           place(agent, nx, ny);
           return;
         }
@@ -642,7 +728,7 @@ Rules:
         agent.intent = { vx: 0, vy: 0, remaining: 0, label: "idle" };
         agent.move = "idle";
         agent.el.classList.remove("walk");
-        pushEnv(agent, "finished move steps — now idle in place");
+        pushEnv(agent, "finished steps");
       }
     }
 
@@ -650,141 +736,121 @@ Rules:
       if (!lastFrame) lastFrame = now;
       const dt = Math.min(0.05, (now - lastFrame) / 1000);
       lastFrame = now;
-
-      if (running && engine) {
-        // Only simulate once the LLM is online — bodies wait frozen until then
-        for (const agent of agents) simulate(agent, dt);
+      if (running && model) {
+        for (const a of agents) simulate(a, dt);
       }
-
       requestAnimationFrame(tick);
     }
 
-    function waitUntilIdleOrTimeout(agent, maxMs = 2800) {
+    function waitUntilIdleOrTimeout(agent, maxMs = 2400) {
       const start = performance.now();
       return new Promise((resolve) => {
-        function check() {
+        (function check() {
           const busy = agent.intent && agent.intent.remaining > 0;
           if (!busy || performance.now() - start > maxMs) return resolve();
           requestAnimationFrame(check);
-        }
-        check();
+        })();
       });
     }
 
     async function think(agent) {
-      if (!engine || !running) return;
-      // let previous LLM move mostly finish so position feedback is real
+      if (!model || !running) return;
       await waitUntilIdleOrTimeout(agent, 2200);
-
       agent.ticks += 1;
       setMood(agent, "think");
+      setStatus(`${agent.name} · VLA seeing…`, "warn");
 
       try {
-        const other = otherOf(agent);
-        const d = Math.round(dist(agent, other));
-        const messages = [
-          { role: "system", content: systemPrompt(agent) },
-          {
-            role: "user",
-            content:
-              agent.ticks === 1
-                ? `You woke in the environment. Issue your first MOVE command (and maybe say hi to ${other.name}).`
-                : `Turn ${agent.ticks}. World updated. Distance to ${other.name}: ${d}px. ` +
-                  `Issue the next move the environment should execute.` +
-                  (d < NEAR ? " You are CLOSE — interact." : " Far — approach/call/or explore."),
-          },
-        ];
-
-        const reply = await engine.chat.completions.create({
-          messages,
-          temperature: 0.95,
-          max_tokens: 120,
-        });
-
-        const content = reply?.choices?.[0]?.message?.content || "";
-        const action = parseAction(content);
+        const raw = await vlaInfer(agent);
+        const action = parseAction(raw);
         if (running) applyAction(agent, action);
-
         setStatus(
-          `${agent.name} → ${agent.move}×${action.steps ?? "?"} @ (${Math.round(agent.x)},${Math.round(agent.y)})`,
+          `${agent.name} · saw→${(action.see || "…").toString().slice(0, 28)} · ${agent.move}`,
           ""
         );
       } catch (err) {
         console.error(agent.name, err);
-        // on failure: do NOT random-walk; stay put and note env
-        haltIntent(agent, "brain error — stayed put");
-        setStatus(`${agent.name} glitch`, "warn");
+        haltIntent(agent, "vision error");
+        setStatus(`${agent.name} VLA glitch: ${err.message || err}`, "warn");
       }
     }
 
     async function dualLoop() {
       let i = 0;
-      while (running && engine) {
-        const agent = agents[i % agents.length];
-        await think(agent);
+      while (running && model) {
+        await think(agents[i % agents.length]);
         i += 1;
-        // small gap so both agents' moves can play out in the world
-        await new Promise((r) => setTimeout(r, 200));
+        await new Promise((r) => setTimeout(r, 150));
       }
     }
 
     async function boot() {
-      if (engine) return;
+      if (model) return;
 
       if (!navigator.gpu) {
-        setStatus("needs WebGPU — click to retry", "err");
+        setStatus("needs WebGPU (Chrome/Edge) — click to retry", "err");
         return;
       }
 
       progressEl.style.display = "block";
       progressBar.style.width = "0%";
-      setStatus("loading mind…", "warn");
+      setStatus("loading SmolVLM (VLA eye)…", "warn");
 
-      const initProgressCallback = (report) => {
-        const p = Math.round((report.progress || 0) * 100);
-        progressBar.style.width = `${p}%`;
-        setStatus(`loading ${p}%`, "warn");
-      };
+      try {
+        processor = await AutoProcessor.from_pretrained(MODEL_ID, {
+          progress_callback: (p) => {
+            if (p?.progress != null) {
+              const pct = Math.round(p.progress * 100);
+              progressBar.style.width = `${Math.min(50, pct / 2)}%`;
+              setStatus(`processor ${pct}%`, "warn");
+            }
+          },
+        });
 
-      let lastErr = null;
-      for (const model of MODELS) {
-        try {
-          engine = await CreateMLCEngine(model, { initProgressCallback });
-          progressBar.style.width = "100%";
-          setTimeout(() => { progressEl.style.display = "none"; }, 400);
-          setMood(bit, "curious");
-          setMood(nox, "curious");
-          say(bit, "hey… is someone else here?");
-          say(nox, "ugh. company.");
-          setStatus("LLM driving movement", "");
-          setTimeout(() => { statusEl.style.opacity = "0.35"; }, 3000);
-          dualLoop();
-          return;
-        } catch (err) {
-          console.warn(model, err);
-          lastErr = err;
-          engine = null;
-        }
+        model = await AutoModelForVision2Seq.from_pretrained(MODEL_ID, {
+          dtype: "fp32",
+          device: "webgpu",
+          progress_callback: (p) => {
+            if (p?.progress != null) {
+              const pct = Math.round(p.progress * 100);
+              progressBar.style.width = `${50 + pct / 2}%`;
+              setStatus(`SmolVLM weights ${pct}%`, "warn");
+            }
+          },
+        });
+
+        progressBar.style.width = "100%";
+        setTimeout(() => { progressEl.style.display = "none"; }, 400);
+
+        setMood(bit, "curious");
+        setMood(nox, "curious");
+        // seed chat once online
+        say(bit, "i can see you…");
+        say(nox, "don't stare.");
+        setStatus("VLA online · vision + action loop", "");
+        setTimeout(() => { if (!statusEl.classList.contains("err")) statusEl.style.opacity = "0.4"; }, 4000);
+        dualLoop();
+      } catch (err) {
+        console.error(err);
+        model = null;
+        processor = null;
+        progressEl.style.display = "none";
+        setStatus(`VLA load failed — click to retry (${err.message || err})`, "err");
       }
-
-      progressEl.style.display = "none";
-      setStatus(`failed — click to retry`, "err");
     }
 
     function layout() {
       const { w, h } = stageSize();
       place(bit, w * 0.35, h * 0.5);
       place(nox, w * 0.65, h * 0.5);
-      // frozen until LLM issues first intents
       bit.intent = { vx: 0, vy: 0, remaining: 0, label: "idle" };
       nox.intent = { vx: 0, vy: 0, remaining: 0, label: "idle" };
-      bit.el.classList.remove("walk");
-      nox.el.classList.remove("walk");
+      // initial camera paint
+      captureFrame(bit);
     }
 
     layout();
     requestAnimationFrame(tick);
-
     window.addEventListener("resize", () => {
       place(bit, bit.x, bit.y);
       place(nox, nox.x, nox.y);
