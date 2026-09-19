@@ -4,7 +4,14 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Hangout</title>
-  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="styles.css?v=5" />
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.157.2/build/three.module.js"
+    }
+  }
+  </script>
 </head>
 <body>
   <div id="viewport"></div>
@@ -12,7 +19,7 @@
 
   <header id="top">
     <div class="brand">hangout</div>
-    <button type="button" id="who" title="Change name"></button>
+    <button type="button" id="who" title="Change name">you</button>
     <span id="link" class="dim">finding people…</span>
   </header>
 
@@ -28,7 +35,6 @@
 
   <p id="hint">click the world to look around · wasd</p>
 
-  <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
-  <script type="module" src="lobby.js"></script>
+  <script type="module" src="lobby.js?v=5"></script>
 </body>
 </html>
