@@ -32,15 +32,18 @@ function setBone(vrm, name, axis, value) {
 }
 function swingWalk(vrm, t, moving, run) {
   if (!vrm?.humanoid) return;
-  const spd = run ? 12 : 8;
-  const amp = moving ? (run ? 0.9 : 0.55) : 0.06;
+  const spd = run ? 13 : 8.5;
+  const amp = moving ? (run ? 1.05 : 0.72) : 0.05;
   setBone(vrm, "leftUpperLeg", "x", Math.sin(t * spd) * amp);
   setBone(vrm, "rightUpperLeg", "x", Math.sin(t * spd + Math.PI) * amp);
-  setBone(vrm, "leftLowerLeg", "x", Math.max(0, -Math.sin(t * spd) * amp * 0.75));
-  setBone(vrm, "rightLowerLeg", "x", Math.max(0, -Math.sin(t * spd + Math.PI) * amp * 0.75));
-  setBone(vrm, "leftUpperArm", "z", 1.05 + Math.sin(t * spd + Math.PI) * amp * 0.4);
-  setBone(vrm, "rightUpperArm", "z", -1.05 + Math.sin(t * spd) * amp * 0.4);
-  setBone(vrm, "hips", "y", moving ? Math.sin(t * spd) * 0.06 : 0);
+  setBone(vrm, "leftLowerLeg", "x", Math.max(0, -Math.sin(t * spd) * amp * 0.9));
+  setBone(vrm, "rightLowerLeg", "x", Math.max(0, -Math.sin(t * spd + Math.PI) * amp * 0.9));
+  setBone(vrm, "leftFoot", "x", Math.sin(t * spd) * amp * 0.25);
+  setBone(vrm, "rightFoot", "x", Math.sin(t * spd + Math.PI) * amp * 0.25);
+  setBone(vrm, "leftUpperArm", "z", 1.1 + Math.sin(t * spd + Math.PI) * amp * 0.55);
+  setBone(vrm, "rightUpperArm", "z", -1.1 + Math.sin(t * spd) * amp * 0.55);
+  setBone(vrm, "hips", "y", moving ? Math.sin(t * spd) * 0.08 : 0);
+  setBone(vrm, "spine", "x", moving ? Math.sin(t * spd * 2) * 0.04 : 0);
 }
 async function bindIdle(loader, vrm) {
   if (!vrm) return null;
@@ -73,7 +76,7 @@ let colliders = [];
 let bounds = { minX: -12, maxX: 12, minZ: -12, maxZ: 12 };
 let me = { x: 0, z: 3, y: 0, yaw: 0, moving: false, avatar: "aya", world: "sponza" };
 let myActor = null;
-let camYaw = 0, camPitch = 0.22;
+let camYaw = 0.4, camPitch = 0.28, camDist = 5.2, lookH = 1.35, panX = 0, panZ = 0, dragBtn = 0;
 let vrmPlugin = null;
 
 function toast(t) {
@@ -308,21 +311,56 @@ function drawPickers() {
     worlds.appendChild(b);
   }
 }
+function look(dx, dy) {
+  camYaw -= dx * 0.005;
+  camPitch = Math.max(-0.1, Math.min(1.25, camPitch - dy * 0.0035));
+}
+function pan(dx, dy) {
+  const rightX = Math.cos(camYaw), rightZ = -Math.sin(camYaw);
+  panX += rightX * dx * 0.01 + Math.sin(camYaw) * dy * 0.01;
+  panZ += rightZ * dx * 0.01 + Math.cos(camYaw) * dy * 0.01;
+  lookH = THREE.MathUtils.clamp(lookH + dy * 0.006, 0.4, 3.2);
+}
 function bind() {
   addEventListener("keydown", (e) => {
     if (e.code === "KeyT" && !chatFocused) { e.preventDefault(); $("chat-input").focus(); return; }
     if (!chatFocused) keys[e.code] = true;
   });
   addEventListener("keyup", (e) => { keys[e.code] = false; });
-  renderer.domElement.addEventListener("click", () => renderer.domElement.requestPointerLock());
-  addEventListener("mousemove", (e) => {
-    if (document.pointerLockElement !== renderer.domElement || chatFocused) return;
-    camYaw -= e.movementX * 0.003;
-    camPitch = Math.max(0.05, Math.min(1.1, camPitch - e.movementY * 0.002));
+  const el = renderer.domElement;
+  el.addEventListener("contextmenu", (e) => e.preventDefault());
+  el.addEventListener("pointerdown", (e) => {
+    dragBtn = e.button;
+    el.setPointerCapture(e.pointerId);
+    if (e.button === 0 && e.detail === 2) el.requestPointerLock();
   });
+  el.addEventListener("pointerup", (e) => { dragBtn = -1; try { el.releasePointerCapture(e.pointerId); } catch {} });
+  el.addEventListener("pointermove", (e) => {
+    if (chatFocused) return;
+    if (document.pointerLockElement === el) { look(e.movementX, e.movementY); return; }
+    if (dragBtn === 0) look(e.movementX, e.movementY);
+    else if (dragBtn === 1 || dragBtn === 2) pan(e.movementX, e.movementY);
+  });
+  el.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    camDist = THREE.MathUtils.clamp(camDist * (e.deltaY > 0 ? 1.08 : 0.92), 1.6, 16);
+  }, { passive: false });
   addEventListener("resize", () => {
     camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight);
   });
+}
+
+function placeCam() {
+  const tx = me.x + panX;
+  const ty = me.y + lookH;
+  const tz = me.z + panZ;
+  const cp = Math.cos(camPitch), sp = Math.sin(camPitch);
+  camera.position.set(
+    tx + Math.sin(camYaw) * cp * camDist,
+    ty + sp * camDist * 0.85 + 0.35,
+    tz + Math.cos(camYaw) * cp * camDist
+  );
+  camera.lookAt(tx, ty, tz);
 }
 
 function tick() {
@@ -354,16 +392,11 @@ function tick() {
     setLocomotion(myActor, me.moving, running);
     myActor.mixer.update(dt);
     if (myActor.vrm) {
-      if (me.moving || !myActor.idle) swingWalk(myActor.vrm, clock.elapsedTime, me.moving, running);
+      swingWalk(myActor.vrm, clock.elapsedTime, me.moving, running);
       myActor.vrm.update(dt);
     }
   }
-  camera.position.set(
-    me.x + Math.sin(camYaw) * Math.cos(camPitch) * 4.4,
-    me.y + 1.7 + Math.sin(camPitch) * 2.2,
-    me.z + Math.cos(camYaw) * Math.cos(camPitch) * 4.4
-  );
-  camera.lookAt(me.x, me.y + 1.25, me.z);
+  placeCam();
 
   for (const [id, st] of others) {
     let actor = remoteActors.get(id);
@@ -379,7 +412,7 @@ function tick() {
     setLocomotion(actor, !!st.moving, false);
     actor.mixer.update(dt);
     if (actor.vrm) {
-      if (st.moving || !actor.idle) swingWalk(actor.vrm, clock.elapsedTime, !!st.moving, false);
+      swingWalk(actor.vrm, clock.elapsedTime, !!st.moving, false);
       actor.vrm.update(dt);
     }
   }
