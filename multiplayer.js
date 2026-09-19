@@ -170,6 +170,12 @@ export function createSession(api) {
         return;
       }
 
+      if (msg.t === "chat") {
+        api.onChat?.(from, msg.text, msg.name);
+        if (asHost) broadcast({ ...msg, id: from }, from);
+        return;
+      }
+
       if (msg.t === "leave") {
         api.onLeave(msg.id || from);
         if (asHost) broadcast({ t: "leave", id: msg.id || from }, from);
@@ -316,6 +322,13 @@ export function createSession(api) {
     else for (const c of conns.values()) if (c.open) c.send(msg);
   }
 
+  function sendChat(text) {
+    if (!peer || destroyed) return;
+    const msg = { t: "chat", name: profile.name, text: String(text).slice(0, 160) };
+    if (role === "host") broadcast(msg);
+    else for (const c of conns.values()) if (c.open) c.send(msg);
+  }
+
   function destroySoft() {
     for (const c of conns.values()) {
       try { c.close(); } catch {}
@@ -341,6 +354,7 @@ export function createSession(api) {
     setProfile,
     pickColor,
     sendState,
+    sendChat,
     destroy,
     get profile() { return { ...profile }; },
     get room() { return room; },
