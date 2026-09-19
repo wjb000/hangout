@@ -60,7 +60,7 @@ function shortest(a, b) {
 const keys = Object.create(null);
 let yaw = 0.15, pitch = 0.22, dist = 4.6;
 let x = 0, z = 3.2, facing = Math.PI, shown = Math.PI, dragging = false;
-let actor = null, mixer = null, vrm = null, vrmMod = null;
+let actor = null, mixer = null, vrm = null, vrmMod = null, faceOff = 0;
 const ROOM = { minX: -7.2, maxX: 7.2, minZ: -5.4, maxZ: 5.4 };
 
 const scene = new THREE.Scene();
@@ -133,11 +133,11 @@ function dummy() {
 function setActor(mesh, clips, vr) {
   if (actor) scene.remove(actor);
   const rig = new THREE.Group();
-  mesh.rotation.set(0, 0, 0);
   rig.add(mesh);
   actor = rig;
   scene.add(actor);
   vrm = vr || null;
+  faceOff = vr ? Math.PI : 0;
   mixer = clips && clips.length ? new THREE.AnimationMixer(mesh) : null;
   if (mixer) {
     const idle = clips.find((c) => /idle/i.test(c.name)) || clips[0];
@@ -155,19 +155,14 @@ const loader = new GLTFLoader();
 async function wear(id) {
   const spec = CAST[id]; if (!spec) return;
   toast("loading " + id);
-  if (spec.vrm) {
-    if (!vrmMod) {
-      vrmMod = await import("@pixiv/three-vrm");
-      loader.register((p) => new vrmMod.VRMLoaderPlugin(p));
-    }
+  if (spec.vrm && !vrmMod) {
+    vrmMod = await import("@pixiv/three-vrm");
+    loader.register((p) => new vrmMod.VRMLoaderPlugin(p));
   }
   const gltf = await loader.loadAsync(spec.url);
   const vr = gltf.userData && gltf.userData.vrm;
-  if (vr && vrmMod?.VRMUtils?.rotateVRM0) try { vrmMod.VRMUtils.rotateVRM0(vr); } catch {}
   const root = vr ? vr.scene : gltf.scene;
   root.traverse((o) => { if (o.isMesh) o.frustumCulled = false; });
-  // VRM0 faces -Z in Three until flipped; keep a child yaw so walk heading stays camera-true.
-  if (vr) root.rotation.y = Math.PI;
   setActor(root, gltf.animations || [], vr);
   toast(id);
 }
@@ -242,10 +237,10 @@ function tick() {
     z = THREE.MathUtils.clamp(z + vz * speed * dt, ROOM.minZ, ROOM.maxZ);
     facing = Math.atan2(vx, vz);
   }
-  shown += shortest(shown, facing) * Math.min(1, dt * 12);
+  shown += shortest(shown, facing) * Math.min(1, dt * 14);
   if (actor) {
     actor.position.set(x, 0, z);
-    actor.rotation.y = shown;
+    actor.rotation.y = shown + faceOff;
   }
   loco(moving, run);
   if (mixer) mixer.update(dt);
