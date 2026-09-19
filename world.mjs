@@ -9,20 +9,37 @@ const CAST = [
   { id: "robot", name: "Robot", url: BASE + "RobotExpressive/RobotExpressive.glb", scale: 1 },
 ];
 
+const WORLDS = [
+  {
+    id: "sponza",
+    name: "Sponza",
+    url: "https://cdn.jsdelivr.net/gh/KhronosGroup/glTF-Sample-Assets@main/Models/Sponza/glTF/Sponza.gltf",
+    spawn: { x: 0, z: 0 },
+  },
+  {
+    id: "tokyo",
+    name: "Tokyo",
+    url: BASE + "LittlestTokyo.glb",
+    spawn: { x: 1, z: 2 },
+  },
+];
+
 const $ = (id) => document.getElementById(id);
 const others = new Map();
 const remoteMesh = new Map();
 const keys = {};
 let chatFocused = false;
 let scene, camera, renderer, clock, loader;
-let me = { x: -4, z: 2, y: 0, yaw: 0.6, moving: false, avatar: CAST[0].id };
+let worldRoot = null;
+let bounds = { minX: -20, maxX: 20, minZ: -20, maxZ: 20 };
+let me = { x: 0, z: 2, y: 0, yaw: 0, moving: false, avatar: CAST[0].id, world: "sponza" };
 let myRig = null;
-let camYaw = 0.6, camPitch = 0.22;
+let camYaw = 0, camPitch = 0.22;
 
 function toast(t) {
   const el = $("toast"); if (!el) return;
   el.textContent = t; el.classList.add("show");
-  clearTimeout(toast._t); toast._t = setTimeout(() => el.classList.remove("show"), 2000);
+  clearTimeout(toast._t); toast._t = setTimeout(() => el.classList.remove("show"), 2600);
 }
 function log(t) {
   const box = $("chat-log"); if (!box) return;
@@ -38,7 +55,7 @@ function pills() {
 function setLink(t, k) { const el = $("link"); if (!el) return; el.textContent = t; el.className = k || "dim"; }
 
 const session = createSession({
-  onStatus(msg, kind) { if (kind === "good") setLink("black cat", "ok"); else setLink(String(msg||"").toLowerCase(), kind === "bad" ? "bad" : "dim"); },
+  onStatus(msg, kind) { if (kind === "good") setLink("in world", "ok"); else setLink(String(msg || "").toLowerCase(), kind === "bad" ? "bad" : "dim"); },
   onState(id, st) {
     const first = !others.has(id);
     others.set(id, { ...(others.get(id) || {}), ...st });
@@ -69,109 +86,60 @@ $("chat-form").onsubmit = (e) => {
 $("chat-input").onfocus = () => { chatFocused = true; };
 $("chat-input").onblur = () => { chatFocused = false; };
 
-function box(x, y, z, w, h, d, color, opts = {}) {
-  const m = new THREE.Mesh(
-    new THREE.BoxGeometry(w, h, d),
-    new THREE.MeshStandardMaterial({
-      color, roughness: opts.r ?? 0.75, metalness: opts.m ?? 0,
-      emissive: opts.e || 0, emissiveIntensity: opts.ei || 0,
-    })
-  );
-  m.position.set(x, y, z);
-  if (opts.ry) m.rotation.y = opts.ry;
-  m.castShadow = true; m.receiveShadow = true;
-  scene.add(m); return m;
-}
-
-function buildWorld() {
+function setupRenderer() {
   scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x0b090c);
-  scene.fog = new THREE.Fog(0x0b090c, 18, 36);
-  camera = new THREE.PerspectiveCamera(62, innerWidth / innerHeight, 0.08, 70);
+  scene.background = new THREE.Color(0x0d0c10);
+  scene.fog = new THREE.Fog(0x0d0c10, 28, 70);
+  camera = new THREE.PerspectiveCamera(62, innerWidth / innerHeight, 0.08, 120);
   renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setSize(innerWidth, innerHeight);
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   renderer.shadowMap.enabled = true;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.05;
+  renderer.toneMappingExposure = 1.15;
   $("viewport").appendChild(renderer.domElement);
   loader = new GLTFLoader();
+  scene.add(new THREE.HemisphereLight(0xffe8d0, 0x101018, 0.7));
+  const sun = new THREE.DirectionalLight(0xfff1dd, 1.35);
+  sun.position.set(8, 18, 6); sun.castShadow = true; scene.add(sun);
+  scene.add(new THREE.AmbientLight(0xffffff, 0.25));
+}
 
-  scene.add(new THREE.HemisphereLight(0xffd8b0, 0x08060a, 0.35));
-  const key = new THREE.DirectionalLight(0xffe0c0, 0.55);
-  key.position.set(-6, 8, 3); key.castShadow = true; scene.add(key);
-
-  // split floors: wood dance left, dark carpet right
-  const wood = new THREE.Mesh(new THREE.PlaneGeometry(12, 16), new THREE.MeshStandardMaterial({ color: 0x6a4a30, roughness: 0.7 }));
-  wood.rotation.x = -Math.PI / 2; wood.position.set(-5, 0, 0); wood.receiveShadow = true; scene.add(wood);
-  const carpet = new THREE.Mesh(new THREE.PlaneGeometry(14, 16), new THREE.MeshStandardMaterial({ color: 0x161416, roughness: 0.95 }));
-  carpet.rotation.x = -Math.PI / 2; carpet.position.set(6, 0, 0); carpet.receiveShadow = true; scene.add(carpet);
-  box(-5.9, 0.08, 0, 0.25, 0.16, 16, 0x4a3424); // step lip
-
-  // room shell
-  box(0, 2.6, -8.1, 24, 5.2, 0.35, 0x1c1818);
-  box(0, 2.6, 8.1, 24, 5.2, 0.35, 0x1c1818);
-  box(-12, 2.6, 0, 0.35, 5.2, 16.4, 0x2a2420);
-  box(12.9, 2.6, 0, 0.35, 5.2, 16.4, 0x1a1818);
-  box(0, 5.15, 0, 26, 0.2, 17, 0x121010);
-
-  // cream wall + lounge (Black Cat left lobby)
-  box(-10.2, 1.5, -3.6, 3.2, 3, 0.12, 0xd8cbb8);
-  box(-10.6, 0.42, -5.1, 1.3, 0.72, 1.15, 0xc4b49a);
-  box(-9.1, 0.42, -5.1, 1.3, 0.72, 1.15, 0xc4b49a);
-  box(-9.85, 0.28, -4.15, 0.7, 0.08, 0.7, 0x3a2a20);
-  const lamp = new THREE.PointLight(0xffc37a, 1.6, 6); lamp.position.set(-9.85, 1.05, -4.15); scene.add(lamp);
-
-  // center circular bar + cat tower
-  const bar = new THREE.Mesh(new THREE.CylinderGeometry(2.55, 2.55, 1.05, 28, 1, true), new THREE.MeshStandardMaterial({ color: 0x2a2a2c, roughness: 0.55 }));
-  bar.position.set(2.2, 0.52, 0.4); scene.add(bar);
-  const top = new THREE.Mesh(new THREE.TorusGeometry(2.55, 0.16, 8, 28), new THREE.MeshStandardMaterial({ color: 0xc9a36a, roughness: 0.4 }));
-  top.rotation.x = Math.PI / 2; top.position.set(2.2, 1.05, 0.4); scene.add(top);
-  box(2.2, 2.7, 0.4, 2.4, 3.4, 2.4, 0x111111);
-  // glowing cat eyes
-  const eyeM = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffffee, emissiveIntensity: 2.2 });
-  const e1 = new THREE.Mesh(new THREE.SphereGeometry(0.12, 10, 8), eyeM); e1.position.set(1.85, 3.55, 1.55); scene.add(e1);
-  const e2 = e1.clone(); e2.position.set(2.55, 3.55, 1.55); scene.add(e2);
-  const ear = new THREE.Mesh(new THREE.ConeGeometry(0.28, 0.4, 4), new THREE.MeshStandardMaterial({ color: 0x111111 }));
-  ear.position.set(1.7, 4.45, 0.5); scene.add(ear);
-  const ear2 = ear.clone(); ear2.position.set(2.7, 4.45, 0.5); scene.add(ear2);
-  const barLight = new THREE.PointLight(0xffaa66, 2.0, 10); barLight.position.set(2.2, 2.2, 0.4); scene.add(barLight);
-  // stools
-  for (let i = 0; i < 8; i++) {
-    const a = (i / 8) * Math.PI * 2 + 0.2;
-    box(2.2 + Math.cos(a) * 3.15, 0.42, 0.4 + Math.sin(a) * 3.15, 0.32, 0.84, 0.32, 0x1a1a1a);
-  }
-  // bottles
-  for (const ox of [-0.4, 0, 0.4]) box(2.2 + ox, 1.45, 0.15, 0.08, 0.32, 0.08, 0x66aacc, { e: 0x224466, ei: 0.4 });
-
-  // booths along +X windows
-  for (let i = 0; i < 4; i++) {
-    const z = -5.2 + i * 3.1;
-    box(10.4, 0.55, z, 2.4, 1.1, 1.5, 0xc4a06a);
-    box(11.35, 0.95, z, 0.25, 1.9, 1.5, 0x2a2420);
-    box(10.4, 0.38, z - 0.95, 1.1, 0.08, 0.7, 0x3a2a22);
-  }
-  // window wall glow
-  for (let i = 0; i < 5; i++) {
-    box(12.6, 2.3, -6 + i * 3, 0.08, 3.2, 1.5, 0x1a2230, { e: 0x334466, ei: 0.25 });
-  }
-
-  // dining tables -X of bar
-  for (const [x, z] of [[-2.2, 4.2], [-2.2, 6.2], [6.4, 5.5], [6.4, 3.4]]) {
-    box(x, 0.42, z, 1.15, 0.08, 1.15, 0x5a4030);
-    box(x, 0.22, z, 0.12, 0.44, 0.12, 0x2a2018);
-  }
-
-  // stage + red curtain
-  box(-5.2, 0.22, -6.4, 6.4, 0.44, 3.2, 0x5a4030);
-  box(-5.2, 2.3, -7.75, 5.2, 2.6, 0.08, 0x8a2030, { e: 0x400810, ei: 0.2 });
-  const spot = new THREE.SpotLight(0xffe6c4, 3.2, 14, 0.55, 0.4); spot.position.set(-5.2, 4.6, -4.2); spot.target.position.set(-5.2, 0, -6.4); scene.add(spot); scene.add(spot.target);
-
-  // hanging cage lights
-  for (const [x, z] of [[8, -2], [8, 2], [8, 5], [-8, 1], [-3, 5]]) {
-    const pl = new THREE.PointLight(0xffcc88, 1.1, 6); pl.position.set(x, 3.3, z); scene.add(pl);
-    box(x, 3.55, z, 0.35, 0.12, 0.35, 0x222018, { e: 0xffcc88, ei: 0.6 });
-  }
+async function loadWorld(id) {
+  const spec = WORLDS.find((w) => w.id === id) || WORLDS[0];
+  toast("loading " + spec.name + "…");
+  if (worldRoot) scene.remove(worldRoot);
+  const gltf = await loader.loadAsync(spec.url);
+  worldRoot = gltf.scene;
+  worldRoot.traverse((o) => {
+    if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; o.frustumCulled = false; }
+  });
+  const box = new THREE.Box3().setFromObject(worldRoot);
+  const size = new THREE.Vector3(); box.getSize(size);
+  const center = new THREE.Vector3(); box.getCenter(center);
+  // sit the mesh on y=0 and keep human-scale-ish walk
+  const targetH = spec.id === "tokyo" ? 8 : 12;
+  const s = size.y > 0.01 ? targetH / size.y : 1;
+  worldRoot.scale.setScalar(s);
+  worldRoot.updateMatrixWorld(true);
+  const box2 = new THREE.Box3().setFromObject(worldRoot);
+  worldRoot.position.x -= (box2.min.x + box2.max.x) * 0.5;
+  worldRoot.position.z -= (box2.min.z + box2.max.z) * 0.5;
+  worldRoot.position.y -= box2.min.y;
+  worldRoot.updateMatrixWorld(true);
+  const final = new THREE.Box3().setFromObject(worldRoot);
+  bounds = {
+    minX: final.min.x + 0.6,
+    maxX: final.max.x - 0.6,
+    minZ: final.min.z + 0.6,
+    maxZ: final.max.z - 0.6,
+  };
+  scene.add(worldRoot);
+  me.world = spec.id;
+  me.x = THREE.MathUtils.clamp(spec.spawn.x, bounds.minX, bounds.maxX);
+  me.z = THREE.MathUtils.clamp(spec.spawn.z, bounds.minZ, bounds.maxZ);
+  document.querySelectorAll("#worlds button").forEach((b) => b.classList.toggle("on", b.dataset.id === spec.id));
+  toast(spec.name);
 }
 
 const cache = new Map();
@@ -194,13 +162,29 @@ async function wear(id, target = "me") {
   }
   return model;
 }
-function drawPicker() {
-  const el = $("picker"); el.innerHTML = "";
+function drawPickers() {
+  const av = $("picker"); av.innerHTML = "";
   for (const c of CAST) {
     const b = document.createElement("button");
     b.dataset.id = c.id; b.textContent = c.name;
     if (c.id === me.avatar) b.classList.add("on");
-    b.onclick = () => wear(c.id); el.appendChild(b);
+    b.onclick = () => wear(c.id); av.appendChild(b);
+  }
+  let worlds = $("worlds");
+  if (!worlds) {
+    worlds = document.createElement("div");
+    worlds.id = "worlds";
+    worlds.style.cssText = "position:fixed;top:52px;left:16px;z-index:6;display:flex;gap:6px";
+    document.body.appendChild(worlds);
+  }
+  worlds.innerHTML = "";
+  for (const w of WORLDS) {
+    const b = document.createElement("button");
+    b.dataset.id = w.id; b.textContent = w.name;
+    b.style.cssText = "border:0;background:rgba(8,6,12,.55);color:#fff;padding:6px 10px;border-radius:999px;cursor:pointer;backdrop-filter:blur(10px)";
+    if (w.id === me.world) b.classList.add("on");
+    b.onclick = () => loadWorld(w.id).catch((e) => toast(String(e)));
+    worlds.appendChild(b);
   }
 }
 function bind() {
@@ -229,12 +213,12 @@ function tick() {
     if (keys.KeyA || keys.ArrowLeft) ix -= 1;
     if (keys.KeyD || keys.ArrowRight) ix += 1;
   }
-  const speed = keys.ShiftLeft ? 6.2 : 3.6;
+  const speed = keys.ShiftLeft ? 6.2 : 3.4;
   const cs = Math.cos(camYaw), sn = Math.sin(camYaw);
   const mx = (ix * cs + iz * sn) * speed;
   const mz = (iz * cs - ix * sn) * speed;
-  me.x = THREE.MathUtils.clamp(me.x + mx * dt, -11, 11.5);
-  me.z = THREE.MathUtils.clamp(me.z + mz * dt, -7.2, 7.2);
+  me.x = THREE.MathUtils.clamp(me.x + mx * dt, bounds.minX, bounds.maxX);
+  me.z = THREE.MathUtils.clamp(me.z + mz * dt, bounds.minZ, bounds.maxZ);
   me.moving = Math.abs(mx) + Math.abs(mz) > 0.1;
   if (me.moving) me.yaw = Math.atan2(mx, mz);
   if (myRig) {
@@ -264,10 +248,12 @@ function tick() {
   renderer.render(scene, camera);
 }
 
-buildWorld();
+setupRenderer();
 clock = new THREE.Clock();
 bind();
-drawPicker();
+drawPickers();
 pills();
-wear(me.avatar).then(() => tick());
-session.autoEnter?.("LAN").then(() => setLink("the black cat", "ok")).catch(() => setLink("solo", "dim"));
+Promise.all([loadWorld("sponza"), wear(me.avatar)])
+  .then(() => tick())
+  .catch((e) => { toast("world failed, trying tokyo"); loadWorld("tokyo").then(() => tick()); console.warn(e); });
+session.autoEnter?.("LAN").then(() => setLink("in world", "ok")).catch(() => setLink("solo", "dim"));
