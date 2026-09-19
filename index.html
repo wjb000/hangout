@@ -39,6 +39,7 @@ canvas{display:block;width:100%;height:100%}
 <script type="module">
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { FBXLoader } from "three/addons/loaders/FBXLoader.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 
 const CAST = {
@@ -46,6 +47,19 @@ const CAST = {
   haru: { vrm: true, url: "https://cdn.jsdelivr.net/gh/madjin/vrm-samples@master/vroid/stable/AvatarSample_B.vrm" },
   ren:  { vrm: true, url: "https://cdn.jsdelivr.net/gh/madjin/vrm-samples@master/vroid/stable/AvatarSample_C.vrm" },
   robot:{ vrm: false, url: "https://cdn.jsdelivr.net/gh/mrdoob/three.js@r160/examples/models/gltf/RobotExpressive/RobotExpressive.glb" },
+};
+const MOTION = {
+  idle: "https://cdn.jsdelivr.net/gh/readyplayerme/animation-library@master/feminine/fbx/idle/F_Standing_Idle_001.fbx",
+  walk: "https://cdn.jsdelivr.net/gh/readyplayerme/animation-library@master/feminine/fbx/locomotion/F_Walk_002.fbx",
+  run:  "https://cdn.jsdelivr.net/gh/readyplayerme/animation-library@master/feminine/fbx/locomotion/F_Run_001.fbx",
+};
+const MIXAMO = {
+  mixamorigHips:"hips", mixamorigSpine:"spine", mixamorigSpine1:"chest", mixamorigSpine2:"upperChest",
+  mixamorigNeck:"neck", mixamorigHead:"head",
+  mixamorigLeftShoulder:"leftShoulder", mixamorigLeftArm:"leftUpperArm", mixamorigLeftForeArm:"leftLowerArm", mixamorigLeftHand:"leftHand",
+  mixamorigRightShoulder:"rightShoulder", mixamorigRightArm:"rightUpperArm", mixamorigRightForeArm:"rightLowerArm", mixamorigRightHand:"rightHand",
+  mixamorigLeftUpLeg:"leftUpperLeg", mixamorigLeftLeg:"leftLowerLeg", mixamorigLeftFoot:"leftFoot", mixamorigLeftToeBase:"leftToes",
+  mixamorigRightUpLeg:"rightUpperLeg", mixamorigRightLeg:"rightLowerLeg", mixamorigRightFoot:"rightFoot", mixamorigRightToeBase:"rightToes",
 };
 
 const toastEl = document.getElementById("toast");
@@ -56,12 +70,11 @@ function shortest(a, b) {
   while (d < -Math.PI) d += Math.PI * 2;
   return d;
 }
-function boneSet(n, ax, v) { if (n) n.rotation[ax] = v; }
 
 const keys = Object.create(null);
 let yaw = 0.2, pitch = 0.18, dist = 3.6;
 let x = 0, z = 3.2, facing = Math.PI, shown = Math.PI, dragging = false;
-let vx = 0, vz = 0, phase = 0, bob = 0, blink = 0;
+let vx = 0, vz = 0, blink = 0, hasClips = false;
 let actor = null, mixer = null, vrm = null, vrmMod = null, faceOff = 0;
 const cam = { x: 0, y: 2, z: 6 };
 const ROOM = { minX: -7.2, maxX: 7.2, minZ: -5.4, maxZ: 5.4 };
@@ -140,19 +153,56 @@ function setActor(mesh, clips, vr) {
   actor = rig; scene.add(actor);
   vrm = vr || null;
   faceOff = vr ? Math.PI : 0;
+  hasClips = false;
   if (vrm?.lookAt) vrm.lookAt.target = camera;
-  mixer = clips && clips.length ? new THREE.AnimationMixer(mesh) : null;
-  if (mixer) {
+  mixer = new THREE.AnimationMixer(mesh);
+  rig.userData.idle = rig.userData.walk = rig.userData.run = null;
+  if (clips && clips.length) {
     const idle = clips.find((c) => /idle/i.test(c.name)) || clips[0];
-    mixer.clipAction(idle).play();
     rig.userData.idle = mixer.clipAction(idle);
     const w = clips.find((c) => /walk/i.test(c.name));
     const r = clips.find((c) => /run/i.test(c.name));
     rig.userData.walk = w ? mixer.clipAction(w) : null;
     rig.userData.run = r ? mixer.clipAction(r) : null;
+    rig.userData.idle.play();
+    hasClips = !!(rig.userData.walk || rig.userData.idle);
   }
 }
 setActor(dummy(), []);
+
+const fbx = new FBXLoader();
+async function mixamoClip(url, vr) {
+  const asset = await fbx.loadAsync(url);
+  const clip = THREE.AnimationClip.findByName(asset.animations, "mixamo.com") || asset.animations[0];
+  if (!clip) return null;
+  const tracks = [];
+  const v0 = vr.meta?.metaVersion === "0";
+  for (const track of clip.tracks) {
+    const [rigName, prop] = track.name.split(".");
+    if (prop !== "quaternion") continue;
+    const human = MIXAMO[rigName];
+    const node = human && vr.humanoid.getNormalizedBoneNode(human);
+    if (!node) continue;
+    const values = v0 ? track.values.map((v, i) => ((i % 2) === 0 ? -v : v)) : track.values.slice();
+    tracks.push(new THREE.QuaternionKeyframeTrack(node.name + ".quaternion", track.times, values));
+  }
+  return tracks.length ? new THREE.AnimationClip(url.split("/").pop(), clip.duration, tracks) : null;
+}
+async function dressMotion(vr, rig) {
+  toast("loading motion");
+  const [idle, walk, run] = await Promise.all([
+    mixamoClip(MOTION.idle, vr).catch(() => null),
+    mixamoClip(MOTION.walk, vr).catch(() => null),
+    mixamoClip(MOTION.run, vr).catch(() => null),
+  ]);
+  mixer = new THREE.AnimationMixer(vr.scene);
+  if (idle) rig.userData.idle = mixer.clipAction(idle);
+  if (walk) rig.userData.walk = mixer.clipAction(walk);
+  if (run) rig.userData.run = mixer.clipAction(run);
+  if (rig.userData.idle) rig.userData.idle.play();
+  hasClips = !!(rig.userData.walk || rig.userData.idle);
+  toast(hasClips ? "ready" : "motion fallback");
+}
 
 const loader = new GLTFLoader();
 async function wear(id) {
@@ -167,6 +217,7 @@ async function wear(id) {
   const root = vr ? vr.scene : gltf.scene;
   root.traverse((o) => { if (o.isMesh) o.frustumCulled = false; });
   setActor(root, gltf.animations || [], vr);
+  if (vr) await dressMotion(vr, actor);
   toast(id);
 }
 
@@ -174,45 +225,24 @@ function bone(name) {
   const h = vrm && vrm.humanoid; if (!h) return null;
   return h.getNormalizedBoneNode?.(name) || h.getBoneNode?.(name);
 }
-function gait(moving, run, distStep) {
+function blinkTick() {
   if (!vrm) return;
-  if (moving) phase += distStep * 3.4;
-  const p = phase;
-  const swing = Math.sin(p);
-  const other = Math.sin(p + Math.PI);
-  const lift = Math.max(0, -Math.cos(p));
-  const lift2 = Math.max(0, -Math.cos(p + Math.PI));
-  const a = moving ? (run ? 0.55 : 0.38) : 0.02;
-  const hang = 1.38;
-  boneSet(bone("leftUpperLeg"), "x", swing * a);
-  boneSet(bone("rightUpperLeg"), "x", other * a);
-  boneSet(bone("leftLowerLeg"), "x", lift * a * 1.15);
-  boneSet(bone("rightLowerLeg"), "x", lift2 * a * 1.15);
-  boneSet(bone("leftFoot"), "x", moving ? swing * 0.12 - lift * 0.08 : 0.06);
-  boneSet(bone("rightFoot"), "x", moving ? other * 0.12 - lift2 * 0.08 : 0.06);
-  boneSet(bone("leftUpperArm"), "z", hang + other * (moving ? 0.28 : 0.04));
-  boneSet(bone("rightUpperArm"), "z", -hang + swing * (moving ? 0.28 : 0.04));
-  boneSet(bone("leftLowerArm"), "x", 0.28 + (moving ? lift * 0.2 : 0));
-  boneSet(bone("rightLowerArm"), "x", 0.28 + (moving ? lift2 * 0.2 : 0));
-  boneSet(bone("hips"), "y", moving ? swing * 0.06 : Math.sin(clock.elapsedTime * 1.05) * 0.018);
-  boneSet(bone("hips"), "x", moving ? (run ? 0.08 : 0.04) : 0.015);
-  boneSet(bone("spine"), "y", moving ? other * 0.045 : 0);
-  boneSet(bone("spine"), "x", moving ? 0.06 : Math.sin(clock.elapsedTime * 1.5) * 0.02);
-  boneSet(bone("chest"), "x", Math.sin(clock.elapsedTime * 1.5) * 0.015 + (moving ? 0.03 : 0));
   blink -= 1 / 60;
-  if (blink < -3.4) blink = 0.12;
+  if (blink < -3.6) blink = 0.12;
   const lid = blink > 0 ? Math.min(1, blink * 14) : 0;
   vrm.expressionManager?.setValue?.("blink", lid);
-  bob = moving ? Math.max(0, Math.sin(p)) * (run ? 0.028 : 0.018) : Math.sin(clock.elapsedTime * 1.5) * 0.006;
 }
-function loco(moving, run) {
+function loco(moving, run, spd) {
   if (!mixer || !actor) return;
   const want = moving ? (run && actor.userData.run ? actor.userData.run : actor.userData.walk || actor.userData.idle) : actor.userData.idle;
   for (const a of [actor.userData.idle, actor.userData.walk, actor.userData.run]) {
     if (!a || a === want) continue;
-    if (a.isRunning()) a.fadeOut(0.16);
+    if (a.isRunning()) a.fadeOut(0.2);
   }
-  if (want && !want.isRunning()) want.reset().fadeIn(0.16).play();
+  if (want && !want.isRunning()) want.reset().fadeIn(0.2).play();
+  if (want && moving && actor.userData.walk && want === actor.userData.walk) {
+    want.timeScale = THREE.MathUtils.clamp(spd / 2.4, 0.75, 1.35);
+  } else if (want) want.timeScale = 1;
 }
 
 const canvas = renderer.domElement;
@@ -262,16 +292,16 @@ function tick() {
   const moving = spd > 0.28;
   if (moving) facing = Math.atan2(vx, vz);
   shown += shortest(shown, facing) * Math.min(1, dt * (moving ? 8 : 4));
-  gait(moving, run, spd * dt);
   if (actor) {
-    actor.position.set(x, bob, z);
+    actor.position.set(x, 0, z);
     actor.rotation.y = shown + faceOff;
   }
-  loco(moving, run);
+  loco(moving, run, spd);
+  blinkTick();
   if (mixer) mixer.update(dt);
   if (vrm) vrm.update(dt);
 
-  const lookY = 1.42 + bob * 0.5;
+  const lookY = 1.42;
   const shoulder = 0.38;
   const sx = Math.cos(yaw) * shoulder, sz = -Math.sin(yaw) * shoulder;
   const cp = Math.cos(pitch), sp = Math.sin(pitch);
