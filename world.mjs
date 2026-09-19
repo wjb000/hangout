@@ -3,7 +3,59 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { createSession } from "./multiplayer.js";
 import { WORLDS } from "./worlds.js";
 import { CAST } from "./avatars.js";
-import { dressLayers, swingWalk, bindIdle } from "./vrmkit.js";
+
+const IDLE_VRMA = "https://cdn.jsdelivr.net/gh/aikeyaorg/aikeya@main/static/animations/idle.vrma";
+function dressLayers(root) {
+  root.traverse((o) => {
+    if (!o.isMesh) return;
+    const n = String(o.name || "").toLowerCase();
+    if (/hair|kami|bang/.test(n)) o.renderOrder = 5;
+    else if (/cloth|wear|shirt|skirt|dress|jacket|pants|onepiece|uniform|coat/.test(n)) o.renderOrder = 4;
+    else if (/face|head|eye|brow|mouth|tooth/.test(n)) o.renderOrder = 3;
+    else if (/body|skin/.test(n)) o.renderOrder = 1;
+    else o.renderOrder = 2;
+    for (const m of [].concat(o.material || [])) {
+      if (!m) continue;
+      if (m.transparent) o.renderOrder += 1;
+      m.depthWrite = !m.transparent;
+    }
+  });
+}
+function vrmBones(vrm, name) {
+  const h = vrm?.humanoid; if (!h) return [];
+  const a = h.getNormalizedBoneNode?.(name);
+  const b = h.getBoneNode?.(name);
+  return [a, b].filter((n, i, arr) => n && arr.indexOf(n) === i);
+}
+function setBone(vrm, name, axis, value) {
+  for (const n of vrmBones(vrm, name)) n.rotation[axis] = value;
+}
+function swingWalk(vrm, t, moving, run) {
+  if (!vrm?.humanoid) return;
+  const spd = run ? 12 : 8;
+  const amp = moving ? (run ? 0.9 : 0.55) : 0.06;
+  setBone(vrm, "leftUpperLeg", "x", Math.sin(t * spd) * amp);
+  setBone(vrm, "rightUpperLeg", "x", Math.sin(t * spd + Math.PI) * amp);
+  setBone(vrm, "leftLowerLeg", "x", Math.max(0, -Math.sin(t * spd) * amp * 0.75));
+  setBone(vrm, "rightLowerLeg", "x", Math.max(0, -Math.sin(t * spd + Math.PI) * amp * 0.75));
+  setBone(vrm, "leftUpperArm", "z", 1.05 + Math.sin(t * spd + Math.PI) * amp * 0.4);
+  setBone(vrm, "rightUpperArm", "z", -1.05 + Math.sin(t * spd) * amp * 0.4);
+  setBone(vrm, "hips", "y", moving ? Math.sin(t * spd) * 0.06 : 0);
+}
+async function bindIdle(loader, vrm) {
+  if (!vrm) return null;
+  try {
+    const mod = await import("@pixiv/three-vrm-animation");
+    loader.register((p) => new mod.VRMAnimationLoaderPlugin(p));
+    const gltf = await loader.loadAsync(IDLE_VRMA);
+    const anim = gltf.userData.vrmAnimation || gltf.userData.vrmAnimations?.[0];
+    if (!anim || !mod.createVRMAnimationClip) return null;
+    return mod.createVRMAnimationClip(anim, vrm);
+  } catch (e) {
+    console.warn("idle vrma", e);
+    return null;
+  }
+}
 
 const BODY_R = 0.48;
 const PEER_R = 0.85;
@@ -87,20 +139,14 @@ function makeActor(root, clips, vrm) {
     const c = clipOf(clips, names);
     return c ? mixer.clipAction(c) : null;
   };
-  const actor = {
-    root, mixer, vrm,
-    idle: mk(["idle", "wait"]),
-    walk: mk(["walk", "walking"]),
-    run: mk(["run", "running"]),
-    wave: mk(["wave", "dance"]),
-    current: null,
-  };
+  const actor = { root, mixer, vrm, idle: mk(["idle", "wait"]), walk: mk(["walk", "walking"]), run: mk(["run", "running"]), wave: mk(["wave", "dance"]), current: null };
   actor.idle?.reset().play();
   actor.current = actor.idle ? "idle" : null;
   return actor;
 }
 function setLocomotion(actor, moving, running) {
   if (!actor) return;
+  if (actor.idle) actor.idle.paused = !!(moving && !actor.walk);
   const next = moving ? (running && actor.run ? "run" : actor.walk ? "walk" : "idle") : "idle";
   if (!actor[next] || actor.current === next) return;
   const from = actor[actor.current];
@@ -216,12 +262,7 @@ async function loadCast(id) {
   }
   const root = vrm ? vrm.scene : gltf.scene;
   root.visible = true;
-  root.traverse((o) => {
-    if (!o.isMesh) return;
-    o.visible = true;
-    o.castShadow = true;
-    o.frustumCulled = false;
-  });
+  root.traverse((o) => { if (o.isMesh) { o.visible = true; o.castShadow = true; o.frustumCulled = false; } });
   dressLayers(root);
   root.scale.setScalar(spec.scale || 1);
   let clips = gltf.animations || [];
@@ -231,22 +272,17 @@ async function loadCast(id) {
   }
   return { root, clips, vrm };
 }
-
 async function wear(id, target = "me") {
   const { root, clips, vrm } = await loadCast(id);
   const actor = makeActor(root, clips, vrm);
   if (target === "me") {
     if (myActor?.root) scene.remove(myActor.root);
-    myActor = actor;
-    scene.add(root);
-    root.position.set(me.x, me.y, me.z);
-    me.avatar = id;
+    myActor = actor; scene.add(root); root.position.set(me.x, me.y, me.z); me.avatar = id;
     document.querySelectorAll("#picker button").forEach((b) => b.classList.toggle("on", b.dataset.id === id));
     toast(CAST.find((c) => c.id === id)?.name || id);
   }
   return actor;
 }
-
 function drawPickers() {
   const av = $("picker"); av.innerHTML = "";
   for (const c of CAST) {
@@ -258,8 +294,7 @@ function drawPickers() {
   }
   let worlds = $("worlds");
   if (!worlds) {
-    worlds = document.createElement("div");
-    worlds.id = "worlds";
+    worlds = document.createElement("div"); worlds.id = "worlds";
     worlds.style.cssText = "position:fixed;top:52px;left:16px;z-index:6;display:flex;gap:6px";
     document.body.appendChild(worlds);
   }
@@ -319,7 +354,7 @@ function tick() {
     setLocomotion(myActor, me.moving, running);
     myActor.mixer.update(dt);
     if (myActor.vrm) {
-      if (!myActor.walk) swingWalk(myActor.vrm, clock.elapsedTime, me.moving, running);
+      if (me.moving || !myActor.idle) swingWalk(myActor.vrm, clock.elapsedTime, me.moving, running);
       myActor.vrm.update(dt);
     }
   }
@@ -335,11 +370,7 @@ function tick() {
     const want = st.avatar || "aya";
     if (!actor || actor.root.userData.avatar !== want) {
       if (actor?.root) scene.remove(actor.root);
-      wear(want, "remote").then((a) => {
-        a.root.userData.avatar = want;
-        scene.add(a.root);
-        remoteActors.set(id, a);
-      });
+      wear(want, "remote").then((a) => { a.root.userData.avatar = want; scene.add(a.root); remoteActors.set(id, a); });
       continue;
     }
     actor.root.position.x += ((st.x ?? 0) - actor.root.position.x) * Math.min(1, dt * 8);
@@ -348,7 +379,7 @@ function tick() {
     setLocomotion(actor, !!st.moving, false);
     actor.mixer.update(dt);
     if (actor.vrm) {
-      if (!actor.walk) swingWalk(actor.vrm, clock.elapsedTime, !!st.moving, false);
+      if (st.moving || !actor.idle) swingWalk(actor.vrm, clock.elapsedTime, !!st.moving, false);
       actor.vrm.update(dt);
     }
   }
