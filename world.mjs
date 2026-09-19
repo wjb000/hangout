@@ -1,27 +1,13 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { createSession } from "./multiplayer.js";
+import { WORLDS } from "./worlds.js";
 
 const BASE = "https://cdn.jsdelivr.net/gh/mrdoob/three.js@r160/examples/models/gltf/";
 const CAST = [
   { id: "xbot", name: "Xbot", url: BASE + "Xbot.glb", scale: 1 },
   { id: "soldier", name: "Soldier", url: BASE + "Soldier.glb", scale: 1 },
   { id: "robot", name: "Robot", url: BASE + "RobotExpressive/RobotExpressive.glb", scale: 1 },
-];
-
-const WORLDS = [
-  {
-    id: "sponza",
-    name: "Sponza",
-    url: "https://cdn.jsdelivr.net/gh/KhronosGroup/glTF-Sample-Assets@main/Models/Sponza/glTF/Sponza.gltf",
-    spawn: { x: 0, z: 0 },
-  },
-  {
-    id: "tokyo",
-    name: "Tokyo",
-    url: BASE + "LittlestTokyo.glb",
-    spawn: { x: 1, z: 2 },
-  },
 ];
 
 const $ = (id) => document.getElementById(id);
@@ -107,7 +93,7 @@ function setupRenderer() {
 
 async function loadWorld(id) {
   const spec = WORLDS.find((w) => w.id === id) || WORLDS[0];
-  toast("loading " + spec.name + "…");
+  toast("loading " + spec.name + " (" + (spec.engine || "glTF") + ")…");
   if (worldRoot) scene.remove(worldRoot);
   const gltf = await loader.loadAsync(spec.url);
   worldRoot = gltf.scene;
@@ -116,9 +102,7 @@ async function loadWorld(id) {
   });
   const box = new THREE.Box3().setFromObject(worldRoot);
   const size = new THREE.Vector3(); box.getSize(size);
-  const center = new THREE.Vector3(); box.getCenter(center);
-  // sit the mesh on y=0 and keep human-scale-ish walk
-  const targetH = spec.id === "tokyo" ? 8 : 12;
+  const targetH = spec.height || 12;
   const s = size.y > 0.01 ? targetH / size.y : 1;
   worldRoot.scale.setScalar(s);
   worldRoot.updateMatrixWorld(true);
@@ -255,5 +239,5 @@ drawPickers();
 pills();
 Promise.all([loadWorld("sponza"), wear(me.avatar)])
   .then(() => tick())
-  .catch((e) => { toast("world failed, trying tokyo"); loadWorld("tokyo").then(() => tick()); console.warn(e); });
+  .catch((e) => { toast("sponza failed, trying house"); loadWorld("house").then(() => tick()); console.warn(e); });
 session.autoEnter?.("LAN").then(() => setLink("in world", "ok")).catch(() => setLink("solo", "dim"));
