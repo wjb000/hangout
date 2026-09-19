@@ -1,78 +1,90 @@
 :root {
-  --ink: #f4efe8;
-  --dim: rgba(244,239,232,.5);
-  --glass: rgba(10,8,16,.62);
+  --ink: #f6f1ea;
+  --dim: rgba(246,241,234,.48);
+  --glass: rgba(12,10,16,.68);
+  --line: rgba(255,255,255,.1);
+  --accent: #8eecff;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body {
-  height: 100%; overflow: hidden; background: #0c0a10; color: var(--ink);
-  font-family: ui-sans-serif, system-ui, sans-serif;
+  height: 100%; overflow: hidden; background: #0b090e; color: var(--ink);
+  font-family: "Segoe UI", ui-sans-serif, system-ui, sans-serif;
 }
 #viewport, canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
 #boot {
-  position: fixed; inset: 0; z-index: 20; display: grid; place-items: center;
-  background: #0c0a10; letter-spacing: .28em; text-transform: uppercase;
-  font-size: 12px; color: var(--dim); pointer-events: none; transition: opacity .4s;
+  position: fixed; inset: 0; z-index: 30; display: grid; place-content: center; gap: 10px;
+  background: radial-gradient(circle at 50% 40%, #1a1420, #0b090e 70%);
+  text-align: center; pointer-events: none; transition: opacity .5s ease;
 }
+#boot span { letter-spacing: .42em; text-transform: uppercase; font-size: 13px; opacity: .9; }
+#boot small { color: var(--dim); letter-spacing: .18em; text-transform: uppercase; font-size: 10px; }
 #boot.off { opacity: 0; }
 #top {
-  position: fixed; top: 14px; left: 16px; z-index: 5;
+  position: fixed; top: 16px; left: 18px; z-index: 8;
   display: flex; gap: 10px; align-items: center;
 }
-.brand { letter-spacing: .22em; font-size: 11px; text-transform: uppercase; opacity: .5; }
+.brand { letter-spacing: .28em; font-size: 11px; text-transform: uppercase; opacity: .42; }
 #who {
-  border: 0; background: var(--glass); color: var(--ink);
-  padding: 5px 10px; border-radius: 999px; cursor: pointer; backdrop-filter: blur(10px);
+  border: 1px solid var(--line); background: var(--glass); color: var(--ink);
+  padding: 6px 12px; border-radius: 999px; cursor: pointer; backdrop-filter: blur(16px);
 }
 #link { font-size: 12px; }
 .dim { color: var(--dim); }
 #link.ok { color: #9de0b8; }
 #link.bad { color: #e8a0a0; }
 #pills {
-  position: fixed; top: 14px; right: 16px; z-index: 5; list-style: none;
+  position: fixed; top: 16px; right: 18px; z-index: 8; list-style: none;
   display: flex; flex-direction: column; align-items: flex-end; gap: 6px;
 }
 #pills li {
   display: flex; gap: 7px; align-items: center; background: var(--glass);
-  backdrop-filter: blur(10px); padding: 4px 10px; border-radius: 999px; font-size: 12px;
+  border: 1px solid var(--line); backdrop-filter: blur(16px);
+  padding: 5px 11px; border-radius: 999px; font-size: 12px;
 }
 .dot { width: 7px; height: 7px; border-radius: 50%; }
 #worlds {
-  position: fixed; top: 52px; left: 16px; z-index: 6; display: flex; gap: 6px;
+  position: fixed; top: 56px; left: 18px; z-index: 8; display: flex; gap: 6px;
 }
 #worlds button, #picker button {
-  border: 1px solid rgba(255,255,255,.12); background: var(--glass); color: var(--ink);
-  backdrop-filter: blur(12px); cursor: pointer;
+  border: 1px solid var(--line); background: var(--glass); color: var(--ink);
+  backdrop-filter: blur(16px); cursor: pointer;
 }
-#worlds button { padding: 6px 10px; border-radius: 999px; font-size: 12px; }
+#worlds button { padding: 6px 12px; border-radius: 999px; font-size: 12px; }
 #picker {
-  position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
-  z-index: 6; display: flex; gap: 8px;
+  position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+  z-index: 8; display: flex; gap: 8px;
 }
 #picker button {
-  min-width: 70px; height: 42px; border-radius: 12px; padding: 0 12px; font-size: 12px;
+  min-width: 76px; height: 40px; border-radius: 999px; padding: 0 14px; font-size: 12px;
 }
-#picker button.on, #worlds button.on { outline: 2px solid #7ee0ff; }
+#picker button.on, #worlds button.on {
+  outline: 1px solid var(--accent);
+  box-shadow: 0 0 0 3px rgba(142,236,255,.16);
+}
 #chat {
-  position: fixed; left: 16px; bottom: 16px; width: min(280px, 42vw); z-index: 6;
-  background: var(--glass); backdrop-filter: blur(14px); border-radius: 16px; padding: 8px 10px;
+  position: fixed; left: 18px; bottom: 18px; width: min(300px, 46vw); z-index: 8;
+  background: var(--glass); border: 1px solid var(--line);
+  backdrop-filter: blur(18px); border-radius: 18px; padding: 10px 12px;
 }
-#chat-log { max-height: 110px; overflow: auto; font-size: 13px; line-height: 1.35; }
+#chat-log { max-height: 120px; overflow: auto; font-size: 13px; line-height: 1.4; }
 #chat-form input {
-  width: 100%; margin-top: 6px; border: 0; outline: 0; background: transparent;
+  width: 100%; margin-top: 8px; border: 0; outline: 0; background: transparent;
   color: var(--ink); font: inherit;
 }
 #hint {
-  position: fixed; bottom: 68px; left: 50%; transform: translateX(-50%);
-  z-index: 4; font-size: 12px; color: var(--dim); pointer-events: none;
+  position: fixed; bottom: 72px; left: 50%; transform: translateX(-50%);
+  z-index: 5; font-size: 12px; color: var(--dim); pointer-events: none;
+  animation: fadehint 8s ease forwards;
 }
+@keyframes fadehint { 70% { opacity: 1; } 100% { opacity: 0; } }
 #toast {
-  position: fixed; top: 56px; left: 50%; transform: translateX(-50%);
-  z-index: 8; background: var(--glass); padding: 8px 14px; border-radius: 999px;
-  opacity: 0; transition: opacity .2s; pointer-events: none;
+  position: fixed; top: 18px; left: 50%; transform: translateX(-50%);
+  z-index: 12; background: var(--glass); border: 1px solid var(--line);
+  padding: 8px 14px; border-radius: 999px; opacity: 0; transition: opacity .2s;
+  pointer-events: none; backdrop-filter: blur(16px);
 }
 #toast.show { opacity: 1; }
 .tag {
-  font-size: 11px; color: #fff; text-shadow: 0 1px 4px #000; white-space: nowrap;
-  pointer-events: none; font-weight: 600;
+  font-size: 12px; color: #fff; text-shadow: 0 1px 6px rgba(0,0,0,.85);
+  white-space: nowrap; pointer-events: none; font-weight: 600; letter-spacing: .02em;
 }

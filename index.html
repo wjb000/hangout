@@ -2,9 +2,9 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>Hangout</title>
-  <link rel="stylesheet" href="styles.css?v=11" />
+  <link rel="stylesheet" href="styles.css?v=12" />
   <script type="importmap">
   {
     "imports": {
@@ -17,7 +17,7 @@
 </head>
 <body>
   <div id="viewport"></div>
-  <div id="boot">dropping in…</div>
+  <div id="boot"><span>hangout</span><small>loading world</small></div>
 
   <header id="top">
     <div class="brand">hangout</div>
@@ -30,14 +30,14 @@
   <div id="worlds"></div>
   <div id="picker"></div>
 
-  <div id="chat" class="idle">
+  <div id="chat">
     <div id="chat-log"></div>
     <form id="chat-form">
-      <input id="chat-input" maxlength="160" placeholder="T to chat" autocomplete="off" />
+      <input id="chat-input" maxlength="160" placeholder="T to talk" autocomplete="off" />
     </form>
   </div>
 
-  <p id="hint">WASD move · drag look · scroll zoom · shift run</p>
-  <script type="module" src="world.mjs?v=11"></script>
+  <p id="hint">WASD · drag to look · scroll to zoom · shift to run</p>
+  <script type="module" src="world.mjs?v=12"></script>
 </body>
 </html>
