@@ -3,53 +3,30 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Hangout — Lobby</title>
+  <title>Hangout</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <div id="viewport"></div>
+  <div id="crosshair">+</div>
 
-  <div id="hud">
-    <div id="hud-tl">
-      <div class="brand">HANGOUT</div>
-      <div class="sub" id="room-label">public lobby</div>
-    </div>
-    <div id="crosshair">+</div>
-    <div id="hint">click to look · WASD move · Space jump · T chat · Esc release mouse</div>
-  </div>
+  <header id="top">
+    <div class="brand">hangout</div>
+    <button type="button" id="who" title="Change name"></button>
+    <span id="link" class="dim">finding people…</span>
+  </header>
 
-  <div id="chat">
+  <ul id="pills"></ul>
+  <div id="toast"></div>
+
+  <div id="chat" class="idle">
     <div id="chat-log"></div>
     <form id="chat-form">
-      <input id="chat-input" maxlength="160" placeholder="T to talk…" autocomplete="off" />
+      <input id="chat-input" maxlength="160" placeholder="Say something" autocomplete="off" />
     </form>
   </div>
 
-  <aside id="roster">
-    <h3>In lobby</h3>
-    <ul id="roster-list"></ul>
-  </aside>
-
-  <div id="gate">
-    <div class="card">
-      <p class="kicker">VR lobby</p>
-      <h1>Hangout</h1>
-      <p class="blurb">Walk a 3D lounge with Bit, Nox, and anyone who joins your room.</p>
-      <label>Display name
-        <input id="mp-name" maxlength="16" placeholder="You" autocomplete="nickname" />
-      </label>
-      <div class="row">
-        <button type="button" id="mp-color" title="Avatar color">◐ color</button>
-        <button type="button" id="enter-solo" class="ghost">Explore solo</button>
-      </div>
-      <div class="row">
-        <button type="button" id="mp-host" class="primary">Host room</button>
-        <input id="mp-code" maxlength="6" placeholder="CODE" spellcheck="false" />
-        <button type="button" id="mp-join">Join</button>
-      </div>
-      <p id="mp-status" class="status">Same Wi‑Fi · host, then share the code</p>
-    </div>
-  </div>
+  <p id="hint">click the world to look around · wasd</p>
 
   <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
   <script type="module" src="lobby.js"></script>
