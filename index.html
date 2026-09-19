@@ -9,34 +9,29 @@
   {
     "imports": {
       "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
-      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+      "@pixiv/three-vrm": "https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@2.1.2/lib/three-vrm.module.min.js"
     }
   }
   </script>
 </head>
 <body>
   <div id="viewport"></div>
-
   <header id="top">
     <div class="brand">hangout</div>
     <button type="button" id="who">you</button>
     <span id="link" class="dim">world</span>
   </header>
-
   <ul id="pills"></ul>
   <div id="toast"></div>
-
   <div id="picker"></div>
-
   <div id="chat" class="idle">
     <div id="chat-log"></div>
     <form id="chat-form">
       <input id="chat-input" maxlength="160" placeholder="T to chat" autocomplete="off" />
     </form>
   </div>
-
-  <p id="hint">WASD move · mouse look · click a character to wear it</p>
-
+  <p id="hint">WASD walk · shift run · click world to look · pick an avatar</p>
   <script type="module" src="world.mjs"></script>
 </body>
 </html>
