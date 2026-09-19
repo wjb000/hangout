@@ -60,9 +60,24 @@
     <div class="sheet">
       <p class="kicker">a little place</p>
       <h1>Hangout</h1>
-      <p class="blurb">Two small AIs live here. Watch them. That’s it.</p>
+      <p class="blurb">Bit & Nox live here. Host a room on your Wi‑Fi and hang out together.</p>
       <button type="button" id="enter-btn">Continue</button>
     </div>
+  </div>
+
+  <!-- Multiplayer lobby -->
+  <div id="mp-panel">
+    <div class="mp-row">
+      <input id="mp-name" type="text" maxlength="16" placeholder="Your name" autocomplete="nickname" />
+      <button type="button" id="mp-color" title="Cycle color" aria-label="Color">◐</button>
+    </div>
+    <div class="mp-row">
+      <button type="button" id="mp-host" class="mp-primary">Host room</button>
+      <input id="mp-code" type="text" maxlength="6" placeholder="CODE" autocomplete="off" spellcheck="false" />
+      <button type="button" id="mp-join">Join</button>
+    </div>
+    <div id="mp-status" class="mp-status">Same Wi‑Fi · host, then share the code</div>
+    <div id="mp-room" class="mp-room hidden"></div>
   </div>
 
   <div id="toasts"></div>
