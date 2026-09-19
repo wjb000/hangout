@@ -3,6 +3,7 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { createSession } from "./multiplayer.js";
 import { WORLDS } from "./worlds.js";
 import { CAST } from "./avatars.js";
+import { dressLayers, swingWalk, bindIdle } from "./vrmkit.js";
 
 const BODY_R = 0.48;
 const PEER_R = 0.85;
@@ -46,8 +47,7 @@ const session = createSession({
   onState(id, st) {
     const first = !others.has(id);
     others.set(id, { ...(others.get(id) || {}), ...st });
-    if (first && st.name) toast(st.name + " joined");
-    pills();
+    if (first && st.name) toast(st.name + " joined"); pills();
   },
   onLeave(id) {
     const p = others.get(id); if (p?.name) toast(p.name + " left");
@@ -81,22 +81,21 @@ function clipOf(clips, names) {
   }
   return null;
 }
-function makeActor(root, clips) {
+function makeActor(root, clips, vrm) {
   const mixer = new THREE.AnimationMixer(root);
   const mk = (names) => {
     const c = clipOf(clips, names);
-    if (!c) return null;
-    return mixer.clipAction(c);
+    return c ? mixer.clipAction(c) : null;
   };
   const actor = {
-    root, mixer,
+    root, mixer, vrm,
     idle: mk(["idle", "wait"]),
     walk: mk(["walk", "walking"]),
     run: mk(["run", "running"]),
     wave: mk(["wave", "dance"]),
     current: null,
   };
-  actor.idle?.play();
+  actor.idle?.reset().play();
   actor.current = actor.idle ? "idle" : null;
   return actor;
 }
@@ -106,8 +105,8 @@ function setLocomotion(actor, moving, running) {
   if (!actor[next] || actor.current === next) return;
   const from = actor[actor.current];
   const to = actor[next];
-  to.reset().fadeIn(0.15).play();
-  if (from && from !== to) from.fadeOut(0.15);
+  to.reset().fadeIn(0.18).play();
+  if (from && from !== to) from.fadeOut(0.18);
   actor.current = next;
 }
 
@@ -167,7 +166,6 @@ function setupRenderer() {
   sun.position.set(6, 14, 8); sun.castShadow = true; scene.add(sun);
   scene.add(new THREE.AmbientLight(0xffffff, 0.45));
 }
-
 async function enableVrm() {
   if (vrmPlugin) return vrmPlugin;
   const mod = await import("@pixiv/three-vrm");
@@ -223,20 +221,20 @@ async function loadCast(id) {
     o.visible = true;
     o.castShadow = true;
     o.frustumCulled = false;
-    const mats = Array.isArray(o.material) ? o.material : [o.material];
-    for (const m of mats) {
-      if (!m) continue;
-      m.side = THREE.DoubleSide;
-      m.depthWrite = true;
-    }
   });
+  dressLayers(root);
   root.scale.setScalar(spec.scale || 1);
-  return { root, clips: gltf.animations || [] };
+  let clips = gltf.animations || [];
+  if (vrm) {
+    const idle = await bindIdle(loader, vrm);
+    if (idle) clips = [idle, ...clips];
+  }
+  return { root, clips, vrm };
 }
 
 async function wear(id, target = "me") {
-  const { root, clips } = await loadCast(id);
-  const actor = makeActor(root, clips);
+  const { root, clips, vrm } = await loadCast(id);
+  const actor = makeActor(root, clips, vrm);
   if (target === "me") {
     if (myActor?.root) scene.remove(myActor.root);
     myActor = actor;
@@ -275,7 +273,6 @@ function drawPickers() {
     worlds.appendChild(b);
   }
 }
-
 function bind() {
   addEventListener("keydown", (e) => {
     if (e.code === "KeyT" && !chatFocused) { e.preventDefault(); $("chat-input").focus(); return; }
@@ -317,12 +314,14 @@ function tick() {
   if (me.moving) me.yaw = Math.atan2(mx, mz);
 
   if (myActor) {
-    const bob = (!myActor.walk && me.moving) ? Math.abs(Math.sin(clock.elapsedTime * 9)) * 0.06 : 0;
-    myActor.root.position.set(me.x, me.y + bob, me.z);
+    myActor.root.position.set(me.x, me.y, me.z);
     myActor.root.rotation.y = me.yaw;
-    myActor.root.visible = true;
     setLocomotion(myActor, me.moving, running);
     myActor.mixer.update(dt);
+    if (myActor.vrm) {
+      if (!myActor.walk) swingWalk(myActor.vrm, clock.elapsedTime, me.moving, running);
+      myActor.vrm.update(dt);
+    }
   }
   camera.position.set(
     me.x + Math.sin(camYaw) * Math.cos(camPitch) * 4.4,
@@ -348,6 +347,10 @@ function tick() {
     if (st.angle != null) actor.root.rotation.y += (st.angle - actor.root.rotation.y) * Math.min(1, dt * 8);
     setLocomotion(actor, !!st.moving, false);
     actor.mixer.update(dt);
+    if (actor.vrm) {
+      if (!actor.walk) swingWalk(actor.vrm, clock.elapsedTime, !!st.moving, false);
+      actor.vrm.update(dt);
+    }
   }
   session.sendState({ x: me.x, y: me.z, angle: me.yaw, moving: me.moving, avatar: me.avatar });
   renderer.render(scene, camera);
