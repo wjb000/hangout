@@ -39,8 +39,24 @@ canvas{display:block;width:100%;height:100%}
 <script type="module">
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { FBXLoader } from "three/addons/loaders/FBXLoader.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 
+/* Retarget from pixiv/three-vrm humanoidAnimation example.
+   Clips from readyplayerme/animation-library (Mixamo). */
+const MIXAMO = {
+  mixamorigHips:"hips", mixamorigSpine:"spine", mixamorigSpine1:"chest", mixamorigSpine2:"upperChest",
+  mixamorigNeck:"neck", mixamorigHead:"head",
+  mixamorigLeftShoulder:"leftShoulder", mixamorigLeftArm:"leftUpperArm", mixamorigLeftForeArm:"leftLowerArm", mixamorigLeftHand:"leftHand",
+  mixamorigRightShoulder:"rightShoulder", mixamorigRightArm:"rightUpperArm", mixamorigRightForeArm:"rightLowerArm", mixamorigRightHand:"rightHand",
+  mixamorigLeftUpLeg:"leftUpperLeg", mixamorigLeftLeg:"leftLowerLeg", mixamorigLeftFoot:"leftFoot", mixamorigLeftToeBase:"leftToes",
+  mixamorigRightUpLeg:"rightUpperLeg", mixamorigRightLeg:"rightLowerLeg", mixamorigRightFoot:"rightFoot", mixamorigRightToeBase:"rightToes",
+};
+const MOTION = {
+  idle: "https://cdn.jsdelivr.net/gh/readyplayerme/animation-library@master/feminine/fbx/idle/F_Standing_Idle_001.fbx",
+  walk: "https://cdn.jsdelivr.net/gh/readyplayerme/animation-library@master/feminine/fbx/locomotion/F_Walk_002.fbx",
+  run:  "https://cdn.jsdelivr.net/gh/readyplayerme/animation-library@master/feminine/fbx/locomotion/F_Run_001.fbx",
+};
 const CAST = {
   aya:  { vrm: true, url: "https://cdn.jsdelivr.net/gh/madjin/vrm-samples@master/vroid/stable/AvatarSample_A.vrm" },
   haru: { vrm: true, url: "https://cdn.jsdelivr.net/gh/madjin/vrm-samples@master/vroid/stable/AvatarSample_B.vrm" },
@@ -56,15 +72,12 @@ function shortest(a, b) {
   while (d < -Math.PI) d += Math.PI * 2;
   return d;
 }
-function rot(n, x, y, z) {
-  if (!n) return;
-  n.rotation.set(x, y, z);
-}
+function rot(n, x, y, z) { if (n) n.rotation.set(x, y, z); }
 
 const keys = Object.create(null);
 let yaw = 0.2, pitch = 0.18, dist = 3.6;
 let x = 0, z = 3.2, facing = Math.PI, shown = Math.PI, dragging = false;
-let vx = 0, vz = 0, phase = 0, blink = 0;
+let vx = 0, vz = 0, phase = 0, blink = 0, hasClips = false;
 let actor = null, mixer = null, vrm = null, vrmMod = null, faceOff = 0;
 const cam = { x: 0, y: 2, z: 6 };
 const ROOM = { minX: -7.2, maxX: 7.2, minZ: -5.4, maxZ: 5.4 };
@@ -143,8 +156,10 @@ function setActor(mesh, clips, vr) {
   actor = rig; scene.add(actor);
   vrm = vr || null;
   faceOff = vr ? Math.PI : 0;
+  hasClips = false;
   if (vrm?.lookAt) vrm.lookAt.target = camera;
   mixer = clips && clips.length ? new THREE.AnimationMixer(mesh) : null;
+  rig.userData.idle = rig.userData.walk = rig.userData.run = null;
   if (mixer) {
     const idle = clips.find((c) => /idle/i.test(c.name)) || clips[0];
     mixer.clipAction(idle).play();
@@ -153,9 +168,64 @@ function setActor(mesh, clips, vr) {
     const r = clips.find((c) => /run/i.test(c.name));
     rig.userData.walk = w ? mixer.clipAction(w) : null;
     rig.userData.run = r ? mixer.clipAction(r) : null;
+    hasClips = !!(rig.userData.walk && !vr);
   }
 }
 setActor(dummy(), []);
+
+const fbx = new FBXLoader();
+const _qA = new THREE.Quaternion();
+const restInv = new THREE.Quaternion();
+const parentRest = new THREE.Quaternion();
+async function mixamoClip(url, vr) {
+  const asset = await fbx.loadAsync(url);
+  const clip = THREE.AnimationClip.findByName(asset.animations, "mixamo.com") || asset.animations[0];
+  if (!clip) return null;
+  const tracks = [];
+  const v0 = vr.meta?.metaVersion === "0";
+  for (const track of clip.tracks) {
+    const parts = track.name.split(".");
+    const prop = parts.pop();
+    const rigName = parts.join(".").split("|").pop();
+    const human = MIXAMO[rigName];
+    const node = human && vr.humanoid.getNormalizedBoneNode(human);
+    const src = asset.getObjectByName(rigName);
+    if (!node || !src || prop !== "quaternion") continue;
+    if (src.parent) {
+      src.getWorldQuaternion(restInv).invert();
+      src.parent.getWorldQuaternion(parentRest);
+    }
+    const values = track.values.slice();
+    for (let i = 0; i < values.length; i += 4) {
+      _qA.set(values[i], values[i + 1], values[i + 2], values[i + 3]);
+      if (src.parent) _qA.premultiply(parentRest).multiply(restInv);
+      values[i] = _qA.x; values[i + 1] = _qA.y; values[i + 2] = _qA.z; values[i + 3] = _qA.w;
+    }
+    if (v0) for (let i = 0; i < values.length; i++) if (i % 2 === 0) values[i] = -values[i];
+    tracks.push(new THREE.QuaternionKeyframeTrack(node.name + ".quaternion", track.times, values));
+  }
+  return tracks.length >= 8 ? new THREE.AnimationClip(url.split("/").pop(), clip.duration, tracks) : null;
+}
+async function dressMotion(vr, rig) {
+  toast("loading motion");
+  try {
+    const [idle, walk, run] = await Promise.all([
+      mixamoClip(MOTION.idle, vr).catch(() => null),
+      mixamoClip(MOTION.walk, vr).catch(() => null),
+      mixamoClip(MOTION.run, vr).catch(() => null),
+    ]);
+    mixer = new THREE.AnimationMixer(vr.scene);
+    if (idle) rig.userData.idle = mixer.clipAction(idle);
+    if (walk) rig.userData.walk = mixer.clipAction(walk);
+    if (run) rig.userData.run = mixer.clipAction(run);
+    if (rig.userData.idle) rig.userData.idle.play();
+    hasClips = !!(rig.userData.walk && rig.userData.idle);
+    toast(hasClips ? "clips on" : "using fallback walk");
+  } catch (e) {
+    hasClips = false;
+    toast("using fallback walk");
+  }
+}
 
 const loader = new GLTFLoader();
 async function wear(id) {
@@ -170,14 +240,13 @@ async function wear(id) {
   const root = vr ? vr.scene : gltf.scene;
   root.traverse((o) => { if (o.isMesh) o.frustumCulled = false; });
   setActor(root, gltf.animations || [], vr);
+  if (vr) await dressMotion(vr, actor);
   toast(id);
 }
 
-function nbone(name) {
-  return vrm?.humanoid?.getNormalizedBoneNode?.(name) || null;
-}
+function nbone(name) { return vrm?.humanoid?.getNormalizedBoneNode?.(name) || null; }
 function gait(moving, run, step) {
-  if (!vrm) return;
+  if (!vrm || hasClips) return;
   if (moving) phase += step * 2.8;
   const p = phase;
   const s = Math.sin(p), o = Math.sin(p + Math.PI);
@@ -206,9 +275,9 @@ function loco(moving, run) {
   const want = moving ? (run && actor.userData.run ? actor.userData.run : actor.userData.walk || actor.userData.idle) : actor.userData.idle;
   for (const a of [actor.userData.idle, actor.userData.walk, actor.userData.run]) {
     if (!a || a === want) continue;
-    if (a.isRunning()) a.fadeOut(0.2);
+    if (a.isRunning()) a.fadeOut(0.25);
   }
-  if (want && !want.isRunning()) want.reset().fadeIn(0.2).play();
+  if (want && !want.isRunning()) want.reset().fadeIn(0.25).play();
 }
 
 const canvas = renderer.domElement;
