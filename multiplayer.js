@@ -133,7 +133,7 @@ export function createSession(api) {
   function sendState(state) {
     if (!peer || destroyed) return;
     const now = performance.now(); if (now - lastSend < 50) return; lastSend = now;
-    const msg = { t: "state", id: selfId, ...profile, x: state.x, y: state.y, angle: state.angle, moving: !!state.moving, avatar: state.avatar || "xbot" };
+    const msg = { t: "state", id: selfId, ...profile, x: state.x, y: state.y, angle: state.angle, moving: !!state.moving, avatar: state.avatar || "aya" };
     if (role === "host") broadcast(msg); else for (const c of conns.values()) if (c.open) c.send(msg);
   }
   function sendChat(text) {
