@@ -2,189 +2,194 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Hangout</title>
 <style>
-  html,body{margin:0;height:100%;overflow:hidden;background:#1a1630;color:#f3eee6;font-family:system-ui,sans-serif}
-  canvas{display:block;width:100%;height:100%}
-  #hud{position:fixed;inset:0;pointer-events:none}
-  #hud *{pointer-events:auto}
-  #top{position:absolute;top:14px;left:16px;display:flex;gap:10px;align-items:center}
-  .brand{letter-spacing:.25em;font-size:11px;text-transform:uppercase;opacity:.45}
-  button,input{font:inherit;color:inherit}
-  #who,#bar button{
-    border:1px solid rgba(255,255,255,.14);background:rgba(10,8,16,.65);
-    backdrop-filter:blur(12px);border-radius:999px;padding:6px 12px;cursor:pointer
-  }
-  #bar{position:absolute;bottom:16px;left:50%;transform:translateX(-50%);display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
-  #hint{position:absolute;bottom:64px;left:50%;transform:translateX(-50%);opacity:.55;font-size:12px;pointer-events:none;white-space:nowrap}
-  #err{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);max-width:70%;color:#ffb4b4;display:none}
+html,body{margin:0;height:100%;overflow:hidden;background:#08060c;color:#f4efe8;font-family:ui-sans-serif,system-ui,sans-serif}
+canvas{display:block;width:100%;height:100%}
+#ui{position:fixed;inset:0;pointer-events:none}
+#ui button{pointer-events:auto;border:1px solid rgba(255,255,255,.14);background:rgba(12,8,18,.72);color:#fff;backdrop-filter:blur(14px);border-radius:999px;padding:7px 13px;cursor:pointer;font:12px inherit}
+#top{position:absolute;top:16px;left:18px;display:flex;gap:10px;align-items:center}
+.brand{letter-spacing:.32em;font-size:11px;text-transform:uppercase;opacity:.5;pointer-events:none}
+#cast{position:absolute;bottom:18px;left:50%;transform:translateX(-50%);display:flex;gap:8px}
+#hint{position:absolute;bottom:66px;width:100%;text-align:center;font-size:12px;color:rgba(244,239,232,.5);pointer-events:none}
+#toast{position:absolute;top:16px;left:50%;transform:translateX(-50%);background:rgba(12,8,18,.75);padding:8px 14px;border-radius:999px;opacity:0;transition:opacity .2s;pointer-events:none}
+#toast.on{opacity:1}
 </style>
-<script type="importmap">
-{"imports":{
-  "three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
-  "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
-}}
-</script>
+<script type="importmap">{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+    "@pixiv/three-vrm": "https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@2.1.2/lib/three-vrm.module.min.js"
+  }
+}</script>
 </head>
 <body>
-<div id="hud">
+<div id="ui">
   <div id="top"><div class="brand">hangout</div><button id="who" type="button">you</button></div>
-  <div id="hint">click here, then WASD — drag to look — scroll to zoom</div>
-  <div id="bar">
-    <button type="button" data-av="capsule">Body</button>
-    <button type="button" data-av="robot">Robot</button>
-    <button type="button" data-av="aya">Aya</button>
-    <button type="button" data-world="none">Plaza</button>
-    <button type="button" data-world="house">House</button>
-    <button type="button" data-world="sponza">Sponza</button>
+  <div id="toast"></div>
+  <div id="hint">click the lounge · WASD walk · drag look · scroll zoom · shift run</div>
+  <div id="cast">
+    <button data-id="aya">Aya</button>
+    <button data-id="haru">Haru</button>
+    <button data-id="ren">Ren</button>
+    <button data-id="robot">Robot</button>
   </div>
-  <div id="err"></div>
 </div>
 <script type="module">
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 
-const errBox = document.getElementById("err");
-function fail(e) {
-  console.error(e);
-  errBox.style.display = "block";
-  errBox.textContent = String(e && e.message ? e.message : e);
-}
-window.addEventListener("error", (e) => fail(e.error || e.message));
-window.addEventListener("unhandledrejection", (e) => fail(e.reason));
+const CAST = {
+  aya:  { vrm: true, url: "https://cdn.jsdelivr.net/gh/madjin/vrm-samples@master/vroid/stable/AvatarSample_A.vrm" },
+  haru: { vrm: true, url: "https://cdn.jsdelivr.net/gh/madjin/vrm-samples@master/vroid/stable/AvatarSample_B.vrm" },
+  ren:  { vrm: true, url: "https://cdn.jsdelivr.net/gh/madjin/vrm-samples@master/vroid/stable/AvatarSample_C.vrm" },
+  robot:{ vrm: false, url: "https://cdn.jsdelivr.net/gh/mrdoob/three.js@r160/examples/models/gltf/RobotExpressive/RobotExpressive.glb" },
+};
 
-const AV = {
-  robot: "https://cdn.jsdelivr.net/gh/mrdoob/three.js@r160/examples/models/gltf/RobotExpressive/RobotExpressive.glb",
-  aya: "https://cdn.jsdelivr.net/gh/madjin/vrm-samples@master/vroid/stable/AvatarSample_A.vrm",
-};
-const MAPS = {
-  house: { url: "https://assets.babylonjs.com/meshes/house_scene.glb", h: 4.5, spawn: [1, 3] },
-  sponza: { url: "https://cdn.jsdelivr.net/gh/KhronosGroup/glTF-Sample-Assets@main/Models/Sponza/glTF/Sponza.gltf", h: 14, spawn: [0, 4] },
-};
+const toastEl = document.getElementById("toast");
+function toast(t){ toastEl.textContent = t; toastEl.classList.add("on"); clearTimeout(toast._t); toast._t = setTimeout(() => toastEl.classList.remove("on"), 1800); }
 
 const keys = Object.create(null);
-let yaw = 0.6, pitch = 0.28, dist = 6;
-let x = 0, z = 4, facing = 0, dragging = false;
-let actor = null, mixer = null, world = null, vrm = null, vrmPlug = null;
-let bounds = { minX: -20, maxX: 20, minZ: -20, maxZ: 20 };
+let yaw = 0.15, pitch = 0.22, dist = 4.6;
+let x = 0, z = 3.2, facing = Math.PI, dragging = false;
+let actor = null, mixer = null, vrm = null, vrmMod = null;
+const ROOM = { minX: -7.2, maxX: 7.2, minZ: -5.4, maxZ: 5.4 };
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x2a2440);
-scene.fog = new THREE.Fog(0x2a2440, 22, 55);
-const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 200);
+scene.background = new THREE.Color(0x09070f);
+scene.fog = new THREE.Fog(0x09070f, 16, 28);
+const camera = new THREE.PerspectiveCamera(58, innerWidth / innerHeight, 0.08, 80);
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(innerWidth, innerHeight);
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
 document.body.appendChild(renderer.domElement);
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.06).texture;
 
-scene.add(new THREE.HemisphereLight(0xffe8d2, 0x1a1020, 1.15));
-const sun = new THREE.DirectionalLight(0xffffff, 1.35);
-sun.position.set(8, 16, 10);
-scene.add(sun);
-
-const floor = new THREE.Mesh(
-  new THREE.CircleGeometry(24, 48),
-  new THREE.MeshStandardMaterial({ color: 0x3a3358, roughness: 0.9 })
-);
-floor.rotation.x = -Math.PI / 2;
-scene.add(floor);
-scene.add(new THREE.GridHelper(24, 24, 0x8b7fd4, 0x4a4270));
-
-function capsule() {
-  const g = new THREE.Group();
-  const mat = new THREE.MeshStandardMaterial({ color: 0x66e0ff, roughness: 0.4 });
-  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.32, 1.05, 6, 12), mat);
-  body.position.y = 0.85;
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.22, 16, 12), mat);
-  head.position.y = 1.62;
-  g.add(body); g.add(head);
-  return g;
+function mat(c, extra = {}) {
+  return new THREE.MeshStandardMaterial({ color: c, roughness: 0.62, metalness: 0.08, ...extra });
+}
+function box(w, h, d, c, px, py, pz, extra) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat(c, extra));
+  m.position.set(px, py, pz); scene.add(m); return m;
+}
+function neon(w, h, d, c, px, py, pz) {
+  return box(w, h, d, c, px, py, pz, { emissive: c, emissiveIntensity: 3.2, roughness: 0.2 });
 }
 
-function setActor(root, clips, vrmObj) {
+box(16, 0.08, 12, 0x2a1c22, 0, 0, 0, { roughness: 0.35, metalness: 0.25 });
+const dance = new THREE.Mesh(new THREE.PlaneGeometry(5.2, 5.2, 8, 8), new THREE.MeshStandardMaterial({
+  color: 0x1a1020, emissive: 0x3a1060, emissiveIntensity: 0.35, roughness: 0.3, metalness: 0.4, wireframe: false
+}));
+dance.rotation.x = -Math.PI / 2; dance.position.set(0, 0.045, 0.4); scene.add(dance);
+box(16.2, 4.4, 0.18, 0x140e16, 0, 2.2, -6);
+box(16.2, 4.4, 0.18, 0x140e16, 0, 2.2, 6);
+box(0.18, 4.4, 12.2, 0x140e16, -8, 2.2, 0);
+box(0.18, 4.4, 12.2, 0x140e16, 8, 2.2, 0);
+box(16.4, 0.16, 12.4, 0x0c0a10, 0, 4.4, 0);
+neon(10, 0.04, 0.04, 0xff4d8d, 0, 3.55, -5.88);
+neon(10, 0.04, 0.04, 0x49e0ff, 0, 3.55, 5.88);
+neon(0.04, 0.04, 8, 0xff4d8d, -7.88, 3.55, 0);
+neon(0.04, 0.04, 8, 0x49e0ff, 7.88, 3.55, 0);
+box(8.4, 1.05, 1.3, 0x1a1218, 0, 0.52, -5.15, { roughness: 0.4, metalness: 0.2 });
+box(8.5, 0.08, 1.45, 0x3a2a28, 0, 1.08, -5.15, { roughness: 0.25, metalness: 0.35 });
+neon(7.6, 0.03, 0.03, 0xffb24d, 0, 1.14, -4.52);
+for (let i = -3; i <= 3; i++) box(0.32, 0.78, 0.32, 0x111016, i * 1.05, 1.5, -5.35, { emissive: 0xff8844, emissiveIntensity: 0.25 });
+box(4.2, 0.18, 2.4, 0x1c1420, 0, 0.12, -3.2);
+box(3.6, 0.55, 0.18, 0x120c16, -5.4, 0.4, 3.6);
+box(3.6, 0.55, 0.18, 0x120c16, 5.4, 0.4, 3.6);
+box(1.4, 0.42, 0.7, 0x2a1c28, -5.4, 0.55, 3.1);
+box(1.4, 0.42, 0.7, 0x2a1c28, 5.4, 0.55, 3.1);
+const winL = box(0.06, 2.2, 3.4, 0x6ec8ff, -7.86, 2.15, 0, { emissive: 0x3a80ff, emissiveIntensity: 1.4, roughness: 0.15 });
+const winR = box(0.06, 2.2, 3.4, 0xff7ad1, 7.86, 2.15, 0, { emissive: 0xff3d9a, emissiveIntensity: 1.2, roughness: 0.15 });
+const sign = box(3.4, 0.55, 0.08, 0xff4d8d, 0, 3.15, -5.86, { emissive: 0xff4d8d, emissiveIntensity: 2.4 });
+
+scene.add(new THREE.HemisphereLight(0xffc8d8, 0x0a0610, 0.55));
+const key = new THREE.PointLight(0xff6ea8, 18, 16); key.position.set(0, 3.4, -2); scene.add(key);
+const fill = new THREE.PointLight(0x4ad8ff, 14, 14); fill.position.set(-3.5, 3.1, 2.4); scene.add(fill);
+const fill2 = new THREE.PointLight(0xffb347, 10, 12); fill2.position.set(3.2, 2.6, -3); scene.add(fill2);
+scene.add(new THREE.AmbientLight(0xffffff, 0.18));
+
+function dummy() {
+  const g = new THREE.Group();
+  const skin = mat(0xffd0c2);
+  const shirt = mat(0x67e8ff, { emissive: 0x1a6070, emissiveIntensity: 0.2 });
+  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.26, 0.7, 5, 10), shirt); body.position.y = 1.05;
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.2, 16, 12), skin); head.position.y = 1.62;
+  const hair = new THREE.Mesh(new THREE.SphereGeometry(0.22, 16, 10), mat(0x2a1020)); hair.position.y = 1.7;
+  g.add(body, head, hair); return g;
+}
+function setActor(root, clips, vr) {
   if (actor) scene.remove(actor);
-  actor = root;
-  scene.add(actor);
+  actor = root; scene.add(actor);
+  vrm = vr || null;
   mixer = clips && clips.length ? new THREE.AnimationMixer(root) : null;
-  vrm = vrmObj || null;
   if (mixer) {
     const idle = clips.find((c) => /idle/i.test(c.name)) || clips[0];
     mixer.clipAction(idle).play();
-    actor.userData.walk = clips.find((c) => /walk/i.test(c.name));
-    actor.userData.run = clips.find((c) => /run/i.test(c.name));
-    actor.userData.idle = idle;
-    actor.userData.cur = idle;
+    root.userData.idle = idle;
+    root.userData.walk = clips.find((c) => /walk/i.test(c.name));
+    root.userData.run = clips.find((c) => /run/i.test(c.name));
   }
 }
-
-setActor(capsule(), []);
+setActor(dummy(), []);
 
 const loader = new GLTFLoader();
 async function wear(id) {
-  if (id === "capsule") { setActor(capsule(), []); return; }
-  const url = AV[id]; if (!url) return;
-  if (id === "aya" && !vrmPlug) {
-    const mod = await import("https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@2.1.2/lib/three-vrm.module.min.js");
-    loader.register((p) => new mod.VRMLoaderPlugin(p));
-    vrmPlug = mod;
+  const spec = CAST[id]; if (!spec) return;
+  toast("loading " + id);
+  if (spec.vrm) {
+    if (!vrmMod) {
+      vrmMod = await import("@pixiv/three-vrm");
+      loader.register((p) => new vrmMod.VRMLoaderPlugin(p));
+    }
   }
-  const gltf = await loader.loadAsync(url);
+  const gltf = await loader.loadAsync(spec.url);
   const vr = gltf.userData && gltf.userData.vrm;
-  if (vr && vrmPlug?.VRMUtils?.rotateVRM0) try { vrmPlug.VRMUtils.rotateVRM0(vr); } catch {}
+  if (vr && vrmMod?.VRMUtils?.rotateVRM0) try { vrmMod.VRMUtils.rotateVRM0(vr); } catch {}
   const root = vr ? vr.scene : gltf.scene;
-  root.traverse((o) => { if (o.isMesh) o.frustumCulled = false; });
+  root.traverse((o) => { if (o.isMesh) { o.frustumCulled = false; o.castShadow = false; } });
   setActor(root, gltf.animations || [], vr);
+  toast(id);
 }
 
-async function loadMap(id) {
-  if (world) { scene.remove(world); world = null; bounds = { minX: -20, maxX: 20, minZ: -20, maxZ: 20 }; }
-  if (id === "none") { x = 0; z = 4; return; }
-  const spec = MAPS[id]; if (!spec) return;
-  const gltf = await loader.loadAsync(spec.url);
-  world = gltf.scene;
-  world.traverse((o) => { if (o.isMesh) o.frustumCulled = false; });
-  const box = new THREE.Box3().setFromObject(world);
-  const size = new THREE.Vector3(); box.getSize(size);
-  world.scale.setScalar(size.y > 0.01 ? spec.h / size.y : 1);
-  world.updateMatrixWorld(true);
-  const b = new THREE.Box3().setFromObject(world);
-  world.position.set(-(b.min.x + b.max.x) * 0.5, -b.min.y, -(b.min.z + b.max.z) * 0.5);
-  world.updateMatrixWorld(true);
-  const f = new THREE.Box3().setFromObject(world);
-  bounds = { minX: f.min.x + 1, maxX: f.max.x - 1, minZ: f.min.z + 1, maxZ: f.max.z - 1 };
-  scene.add(world);
-  x = spec.spawn[0]; z = spec.spawn[1];
+function bone(name) {
+  const h = vrm && vrm.humanoid; if (!h) return null;
+  return h.getNormalizedBoneNode?.(name) || h.getBoneNode?.(name);
+}
+function walkBones(t, moving, run) {
+  if (!vrm) return;
+  const s = run ? 11 : 8, a = moving ? (run ? 0.75 : 0.48) : 0.04;
+  const lu = bone("leftUpperLeg"), ru = bone("rightUpperLeg");
+  const ll = bone("leftLowerLeg"), rl = bone("rightLowerLeg");
+  const la = bone("leftUpperArm"), ra = bone("rightUpperArm");
+  if (lu) lu.rotation.x = Math.sin(t * s) * a;
+  if (ru) ru.rotation.x = Math.sin(t * s + Math.PI) * a;
+  if (ll) ll.rotation.x = Math.max(0, -Math.sin(t * s) * a * 0.7);
+  if (rl) rl.rotation.x = Math.max(0, -Math.sin(t * s + Math.PI) * a * 0.7);
+  if (la) la.rotation.z = 1.05 + Math.sin(t * s + Math.PI) * a * 0.35;
+  if (ra) ra.rotation.z = -1.05 + Math.sin(t * s) * a * 0.35;
 }
 
 const canvas = renderer.domElement;
 canvas.style.touchAction = "none";
 addEventListener("keydown", (e) => { keys[e.code] = true; });
 addEventListener("keyup", (e) => { keys[e.code] = false; });
-canvas.addEventListener("pointerdown", (e) => {
-  if (e.button === 0) { dragging = true; canvas.setPointerCapture(e.pointerId); }
-});
+canvas.addEventListener("pointerdown", (e) => { if (e.button === 0) { dragging = true; canvas.setPointerCapture(e.pointerId); } });
 canvas.addEventListener("pointerup", () => { dragging = false; });
 canvas.addEventListener("pointermove", (e) => {
   if (!dragging) return;
-  yaw -= e.movementX * 0.005;
-  pitch = Math.max(0.05, Math.min(1.2, pitch - e.movementY * 0.003));
+  yaw -= e.movementX * 0.0046;
+  pitch = THREE.MathUtils.clamp(pitch - e.movementY * 0.003, 0.04, 1.05);
 });
-canvas.addEventListener("wheel", (e) => {
-  e.preventDefault();
-  dist = Math.max(2.2, Math.min(14, dist + e.deltaY * 0.01));
-}, { passive: false });
-addEventListener("resize", () => {
-  camera.aspect = innerWidth / innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(innerWidth, innerHeight);
-});
-
-document.getElementById("bar").addEventListener("click", (e) => {
-  const t = e.target;
-  if (t.dataset.av) wear(t.dataset.av).catch(fail);
-  if (t.dataset.world) loadMap(t.dataset.world).catch(fail);
-});
+canvas.addEventListener("wheel", (e) => { e.preventDefault(); dist = THREE.MathUtils.clamp(dist + e.deltaY * 0.008, 2.1, 9); }, { passive: false });
+addEventListener("resize", () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
+document.getElementById("cast").onclick = (e) => { const id = e.target.dataset.id; if (id) wear(id).catch((err) => toast(String(err.message || err))); };
 document.getElementById("who").onclick = () => {
   const n = prompt("Name", document.getElementById("who").textContent);
   if (n) document.getElementById("who").textContent = n.slice(0, 16);
@@ -194,49 +199,38 @@ const clock = new THREE.Clock();
 function tick() {
   requestAnimationFrame(tick);
   const dt = Math.min(clock.getDelta(), 0.05);
+  const t = clock.elapsedTime;
+  dance.material.emissiveIntensity = 0.25 + Math.sin(t * 2.2) * 0.12;
+  key.intensity = 16 + Math.sin(t * 1.4) * 2;
   let fx = 0, fz = 0;
   if (keys.KeyW || keys.ArrowUp) fz += 1;
   if (keys.KeyS || keys.ArrowDown) fz -= 1;
   if (keys.KeyA || keys.ArrowLeft) fx -= 1;
   if (keys.KeyD || keys.ArrowRight) fx += 1;
-  const moving = fx || fz;
+  const moving = !!(fx || fz);
+  const run = !!(keys.ShiftLeft || keys.ShiftRight);
   if (moving) {
-    const l = Math.hypot(fx, fz);
-    fx /= l; fz /= l;
-    const speed = (keys.ShiftLeft || keys.ShiftRight) ? 7 : 3.8;
+    const l = Math.hypot(fx, fz); fx /= l; fz /= l;
+    const speed = run ? 6.4 : 3.2;
     const fX = -Math.sin(yaw), fZ = -Math.cos(yaw);
     const rX = Math.cos(yaw), rZ = -Math.sin(yaw);
-    const vx = fX * fz + rX * fx;
-    const vz = fZ * fz + rZ * fx;
-    x = Math.min(bounds.maxX, Math.max(bounds.minX, x + vx * speed * dt));
-    z = Math.min(bounds.maxZ, Math.max(bounds.minZ, z + vz * speed * dt));
+    const vx = fX * fz + rX * fx, vz = fZ * fz + rZ * fx;
+    x = THREE.MathUtils.clamp(x + vx * speed * dt, ROOM.minX, ROOM.maxX);
+    z = THREE.MathUtils.clamp(z + vz * speed * dt, ROOM.minZ, ROOM.maxZ);
     facing = Math.atan2(vx, vz);
   }
-  if (actor) {
-    actor.position.set(x, 0, z);
-    actor.rotation.y = facing;
-  }
+  if (actor) { actor.position.set(x, 0, z); actor.rotation.y = facing; }
   if (mixer) mixer.update(dt);
-  if (vrm) {
-    const h = vrm.humanoid;
-    if (h) {
-      const s = moving ? 8 : 0;
-      const a = moving ? 0.5 : 0;
-      const bone = (n) => h.getNormalizedBoneNode?.(n) || h.getBoneNode?.(n);
-      const L = bone("leftUpperLeg"), R = bone("rightUpperLeg");
-      if (L) L.rotation.x = Math.sin(clock.elapsedTime * s) * a;
-      if (R) R.rotation.x = Math.sin(clock.elapsedTime * s + Math.PI) * a;
-    }
-    vrm.update(dt);
-  }
-  const lookY = 1.25;
+  walkBones(t, moving, run);
+  if (vrm) vrm.update(dt);
+  const lookY = 1.28;
   const cp = Math.cos(pitch), sp = Math.sin(pitch);
   camera.position.set(x + Math.sin(yaw) * cp * dist, lookY + sp * dist, z + Math.cos(yaw) * cp * dist);
   camera.lookAt(x, lookY, z);
   renderer.render(scene, camera);
 }
 tick();
-wear("robot").catch(() => {});
+wear("aya").catch(() => wear("robot"));
 </script>
 </body>
 </html>
