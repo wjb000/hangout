@@ -16,14 +16,20 @@ const CAST = [
     vrm: true,
   },
 ];
+const BODY_R = 0.48;
+const PEER_R = 0.85;
 
 const $ = (id) => document.getElementById(id);
 const others = new Map();
 const remoteActors = new Map();
 const keys = {};
+const ray = new THREE.Raycaster();
+const _o = new THREE.Vector3();
+const _d = new THREE.Vector3();
 let chatFocused = false;
 let scene, camera, renderer, clock, loader;
 let worldRoot = null;
+let colliders = [];
 let bounds = { minX: -20, maxX: 20, minZ: -20, maxZ: 20 };
 let me = { x: 0, z: 2, y: 0, yaw: 0, moving: false, avatar: "robot", world: "sponza" };
 let myActor = null;
@@ -91,7 +97,6 @@ function clipOf(clips, names) {
   }
   return clips[0] || null;
 }
-
 function makeActor(root, clips) {
   const mixer = new THREE.AnimationMixer(root);
   const mk = (names) => {
@@ -100,8 +105,7 @@ function makeActor(root, clips) {
     const a = mixer.clipAction(c); a.enabled = true; return a;
   };
   const actor = {
-    root,
-    mixer,
+    root, mixer,
     idle: mk(["idle", "idle_standing", "wait"]),
     walk: mk(["walk", "walking", "walk_forward"]),
     run: mk(["run", "running", "sprint"]),
@@ -111,7 +115,6 @@ function makeActor(root, clips) {
   if (actor.idle) { actor.idle.play(); actor.current = "idle"; }
   return actor;
 }
-
 function setLocomotion(actor, moving, running) {
   if (!actor) return;
   const next = moving ? (running && actor.run ? "run" : actor.walk ? "walk" : "idle") : "idle";
@@ -120,15 +123,61 @@ function setLocomotion(actor, moving, running) {
   const to = actor[next];
   if (to) { to.reset().fadeIn(0.15).play(); if (from && from !== to) from.fadeOut(0.15); actor.current = next; }
 }
-
 function playOnce(actor, name) {
   if (!actor?.[name]) return;
   const act = actor[name];
-  act.reset().setLoop(THREE.LoopOnce, 1).clampWhenFinished = true;
+  act.reset().setLoop(THREE.LoopOnce, 1); act.clampWhenFinished = true;
   act.fadeIn(0.1).play();
   actor.current = name;
   const done = () => { actor.mixer.removeEventListener("finished", done); actor.current = "idle"; actor.idle?.reset().fadeIn(0.2).play(); };
   actor.mixer.addEventListener("finished", done);
+}
+
+function firstHit(ox, oy, oz, dx, dy, dz, far) {
+  if (!colliders.length) return null;
+  const len = Math.hypot(dx, dy, dz);
+  if (len < 1e-8) return null;
+  _o.set(ox, oy, oz);
+  _d.set(dx / len, dy / len, dz / len);
+  ray.set(_o, _d);
+  ray.far = far;
+  const hits = ray.intersectObjects(colliders, false);
+  return hits[0] || null;
+}
+function blocked(x, z, mx, mz) {
+  const dist = Math.hypot(mx, mz);
+  if (dist < 1e-6) return false;
+  const reach = dist + BODY_R;
+  const a = firstHit(x, me.y + 0.45, z, mx, 0, mz, reach);
+  const b = firstHit(x, me.y + 1.15, z, mx, 0, mz, reach);
+  const h = [a, b].filter(Boolean).sort((p, q) => p.distance - q.distance)[0];
+  return !!(h && h.distance < reach);
+}
+function slide(x, z, mx, mz) {
+  let nx = x, nz = z;
+  if (!blocked(x, z, mx, 0)) nx = x + mx;
+  if (!blocked(nx, z, 0, mz)) nz = z + mz;
+  return { x: nx, z: nz };
+}
+function groundY(x, z) {
+  const h = firstHit(x, Math.max(me.y, 0) + 3.2, z, 0, -1, 0, 12);
+  return h ? h.point.y : me.y;
+}
+function separatePeers(x, z) {
+  let px = x, pz = z;
+  for (const st of others.values()) {
+    const ox = st.x ?? 0, oz = st.y ?? 0;
+    const dx = px - ox, dz = pz - oz;
+    const d = Math.hypot(dx, dz);
+    if (d < PEER_R && d > 1e-4) {
+      const k = (PEER_R - d) / d;
+      px += dx * k;
+      pz += dz * k;
+    } else if (d <= 1e-4) {
+      px += 0.2;
+    }
+  }
+  return { x: px, z: pz };
 }
 
 function setupRenderer() {
@@ -149,7 +198,6 @@ function setupRenderer() {
   sun.position.set(10, 22, 8); sun.castShadow = true; scene.add(sun);
   scene.add(new THREE.AmbientLight(0xffffff, 0.28));
 }
-
 async function enableVrm() {
   if (vrmPlugin) return;
   try {
@@ -165,7 +213,13 @@ async function loadWorld(id) {
   if (worldRoot) scene.remove(worldRoot);
   const gltf = await loader.loadAsync(spec.url);
   worldRoot = gltf.scene;
-  worldRoot.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; o.frustumCulled = false; } });
+  colliders = [];
+  worldRoot.traverse((o) => {
+    if (o.isMesh) {
+      o.castShadow = true; o.receiveShadow = true; o.frustumCulled = false;
+      colliders.push(o);
+    }
+  });
   const box = new THREE.Box3().setFromObject(worldRoot);
   const size = new THREE.Vector3(); box.getSize(size);
   const s = size.y > 0.01 ? (spec.height || 12) / size.y : 1;
@@ -177,13 +231,14 @@ async function loadWorld(id) {
   worldRoot.position.y -= box2.min.y;
   worldRoot.updateMatrixWorld(true);
   const final = new THREE.Box3().setFromObject(worldRoot);
-  bounds = { minX: final.min.x + 0.6, maxX: final.max.x - 0.6, minZ: final.min.z + 0.6, maxZ: final.max.z - 0.6 };
+  bounds = { minX: final.min.x + 0.4, maxX: final.max.x - 0.4, minZ: final.min.z + 0.4, maxZ: final.max.z - 0.4 };
   scene.add(worldRoot);
   me.world = spec.id;
   me.x = THREE.MathUtils.clamp(spec.spawn.x, bounds.minX, bounds.maxX);
   me.z = THREE.MathUtils.clamp(spec.spawn.z, bounds.minZ, bounds.maxZ);
+  me.y = groundY(me.x, me.z);
   document.querySelectorAll("#worlds button").forEach((b) => b.classList.toggle("on", b.dataset.id === spec.id));
-  toast(spec.name + " · " + spec.engine);
+  toast(spec.name + " · collide on");
 }
 
 const cache = new Map();
@@ -202,7 +257,6 @@ async function loadCast(id) {
   cache.set(id, { root, clips });
   return { root: root.clone(), clips };
 }
-
 async function wear(id, target = "me") {
   const { root, clips } = await loadCast(id);
   const actor = makeActor(root, clips);
@@ -213,7 +267,6 @@ async function wear(id, target = "me") {
   }
   return actor;
 }
-
 function drawPickers() {
   const av = $("picker"); av.innerHTML = "";
   for (const c of CAST) {
@@ -240,7 +293,6 @@ function drawPickers() {
     worlds.appendChild(b);
   }
 }
-
 function bind() {
   addEventListener("keydown", (e) => {
     if (e.code === "KeyT" && !chatFocused) { e.preventDefault(); $("chat-input").focus(); return; }
@@ -271,14 +323,20 @@ function tick() {
   const running = !!(keys.ShiftLeft || keys.ShiftRight);
   const speed = running ? 6.4 : 3.3;
   const cs = Math.cos(camYaw), sn = Math.sin(camYaw);
-  const mx = (ix * cs + iz * sn) * speed;
-  const mz = (iz * cs - ix * sn) * speed;
-  me.x = THREE.MathUtils.clamp(me.x + mx * dt, bounds.minX, bounds.maxX);
-  me.z = THREE.MathUtils.clamp(me.z + mz * dt, bounds.minZ, bounds.maxZ);
-  me.moving = Math.abs(mx) + Math.abs(mz) > 0.1;
+  let mx = (ix * cs + iz * sn) * speed * dt;
+  let mz = (iz * cs - ix * sn) * speed * dt;
+
+  const stepped = slide(me.x, me.z, mx, mz);
+  const parted = separatePeers(stepped.x, stepped.z);
+  me.x = THREE.MathUtils.clamp(parted.x, bounds.minX, bounds.maxX);
+  me.z = THREE.MathUtils.clamp(parted.z, bounds.minZ, bounds.maxZ);
+  me.y = THREE.MathUtils.damp(me.y, groundY(me.x, me.z), 8, dt);
+  me.moving = Math.hypot(mx, mz) > 0.0008 && (Math.abs(me.x - stepped.x) < 2);
+  me.moving = Math.hypot(mx, mz) > 0.0008;
   if (me.moving) me.yaw = Math.atan2(mx, mz);
+
   if (myActor) {
-    myActor.root.position.set(me.x, 0, me.z);
+    myActor.root.position.set(me.x, me.y, me.z);
     myActor.root.rotation.y = me.yaw;
     setLocomotion(myActor, me.moving, running);
     myActor.mixer.update(dt);
@@ -286,10 +344,11 @@ function tick() {
   const back = 4.4;
   camera.position.set(
     me.x + Math.sin(camYaw) * Math.cos(camPitch) * back,
-    1.7 + Math.sin(camPitch) * 2.2,
+    me.y + 1.7 + Math.sin(camPitch) * 2.2,
     me.z + Math.cos(camYaw) * Math.cos(camPitch) * back
   );
-  camera.lookAt(me.x, 1.25, me.z);
+  camera.lookAt(me.x, me.y + 1.25, me.z);
+
   for (const [id, st] of others) {
     let actor = remoteActors.get(id);
     if (!actor || actor.root.userData.avatar !== (st.avatar || "robot")) {
