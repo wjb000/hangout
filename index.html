@@ -3,38 +3,39 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
   <title>Hangout</title>
   <link rel="stylesheet" href="styles.css" />
   <script type="importmap">
   {
     "imports": {
-      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
     }
   }
   </script>
 </head>
 <body>
   <div id="viewport"></div>
-  <div id="crosshair">+</div>
 
   <header id="top">
     <div class="brand">hangout</div>
-    <button type="button" id="who" title="Change name">you</button>
-    <span id="link" class="dim">finding people…</span>
+    <button type="button" id="who">you</button>
+    <span id="link" class="dim">world</span>
   </header>
 
   <ul id="pills"></ul>
   <div id="toast"></div>
 
+  <div id="picker"></div>
+
   <div id="chat" class="idle">
     <div id="chat-log"></div>
     <form id="chat-form">
-      <input id="chat-input" maxlength="160" placeholder="Say something" autocomplete="off" />
+      <input id="chat-input" maxlength="160" placeholder="T to chat" autocomplete="off" />
     </form>
   </div>
 
-  <p id="hint">click the world to look around · wasd</p>
+  <p id="hint">WASD move · mouse look · click a character to wear it</p>
 
   <script type="module" src="world.mjs"></script>
 </body>
