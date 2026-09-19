@@ -4,35 +4,40 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Hangout</title>
-  <link rel="stylesheet" href="styles.css?v=10" />
+  <link rel="stylesheet" href="styles.css?v=11" />
   <script type="importmap">
   {
     "imports": {
       "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
       "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
-      "@pixiv/three-vrm": "https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@2.1.2/lib/three-vrm.module.min.js",
-      "@pixiv/three-vrm-animation": "https://cdn.jsdelivr.net/npm/@pixiv/three-vrm-animation@2.1.2/lib/three-vrm-animation.module.min.js"
+      "@pixiv/three-vrm": "https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@2.1.2/lib/three-vrm.module.min.js"
     }
   }
   </script>
 </head>
 <body>
   <div id="viewport"></div>
+  <div id="boot">dropping in…</div>
+
   <header id="top">
     <div class="brand">hangout</div>
     <button type="button" id="who">you</button>
-    <span id="link" class="dim">world</span>
+    <span id="link" class="dim">connecting</span>
   </header>
+
   <ul id="pills"></ul>
   <div id="toast"></div>
+  <div id="worlds"></div>
   <div id="picker"></div>
+
   <div id="chat" class="idle">
     <div id="chat-log"></div>
     <form id="chat-form">
       <input id="chat-input" maxlength="160" placeholder="T to chat" autocomplete="off" />
     </form>
   </div>
-  <p id="hint">WASD move · drag look · wheel zoom · shift run</p>
-  <script type="module" src="world.mjs?v=10"></script>
+
+  <p id="hint">WASD move · drag look · scroll zoom · shift run</p>
+  <script type="module" src="world.mjs?v=11"></script>
 </body>
 </html>
