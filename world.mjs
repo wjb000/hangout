@@ -11,18 +11,21 @@ const remote = new Map();
 const keys = Object.create(null);
 let chatFocused = false;
 let scene, camera, renderer, labels, clock, loader;
-let worldRoot = null, floor = null;
+let worldRoot = null;
 let bounds = { minX: -18, maxX: 18, minZ: -18, maxZ: 18 };
 let me = { x: 0, z: 4, y: 0, yaw: 0, moving: false, avatar: "aya", world: "sponza" };
 let myActor = null;
-let yaw = 0.4, pitch = 0.32, dist = 5.4;
+let yaw = 0.45, pitch = 0.3, dist = 5.2;
+let cam = { x: 0, y: 2, z: 6 };
+let vel = { x: 0, z: 0 };
 let dragging = false;
 let vrmMod = null;
+let wearing = false;
 
 function toast(t) {
   const el = $("toast"); if (!el) return;
   el.textContent = t; el.classList.add("show");
-  clearTimeout(toast._t); toast._t = setTimeout(() => el.classList.remove("show"), 2200);
+  clearTimeout(toast._t); toast._t = setTimeout(() => el.classList.remove("show"), 2000);
 }
 function log(t) {
   const box = $("chat-log"); if (!box) return;
@@ -82,41 +85,42 @@ $("chat-input").onfocus = () => { chatFocused = true; };
 $("chat-input").onblur = () => { chatFocused = false; };
 
 function tag(actor, name) {
+  if (!actor || actor.tagName === name) return;
+  actor.tagName = name;
   if (actor.label) actor.root.remove(actor.label);
   const div = document.createElement("div");
   div.className = "tag"; div.textContent = name || "";
   const obj = new CSS2DObject(div);
-  obj.position.set(0, 1.85, 0);
+  obj.position.set(0, 1.9, 0);
   actor.root.add(obj); actor.label = obj;
 }
 
 function pose(vrm, name, axis, v) {
   const h = vrm?.humanoid; if (!h) return;
-  const nodes = [h.getNormalizedBoneNode?.(name), h.getBoneNode?.(name)].filter(Boolean);
-  for (const n of nodes) n.rotation[axis] = v;
+  for (const n of [h.getNormalizedBoneNode?.(name), h.getBoneNode?.(name)].filter(Boolean)) n.rotation[axis] = v;
 }
 function walkPose(vrm, t, moving, run) {
   if (!vrm?.humanoid) return;
   const s = run ? 12 : 8;
-  const a = moving ? (run ? 0.85 : 0.55) : 0.03;
+  const a = moving ? (run ? 0.82 : 0.52) : 0.025;
   pose(vrm, "leftUpperLeg", "x", Math.sin(t * s) * a);
   pose(vrm, "rightUpperLeg", "x", Math.sin(t * s + Math.PI) * a);
   pose(vrm, "leftLowerLeg", "x", Math.max(0, -Math.sin(t * s) * a * 0.8));
   pose(vrm, "rightLowerLeg", "x", Math.max(0, -Math.sin(t * s + Math.PI) * a * 0.8));
-  pose(vrm, "leftUpperArm", "z", 1.05 + Math.sin(t * s + Math.PI) * a * 0.4);
-  pose(vrm, "rightUpperArm", "z", -1.05 + Math.sin(t * s) * a * 0.4);
+  pose(vrm, "leftUpperArm", "z", 1.05 + Math.sin(t * s + Math.PI) * a * 0.38);
+  pose(vrm, "rightUpperArm", "z", -1.05 + Math.sin(t * s) * a * 0.38);
 }
 
 function setup() {
   scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x141018);
-  scene.fog = new THREE.Fog(0x141018, 22, 62);
-  camera = new THREE.PerspectiveCamera(58, innerWidth / innerHeight, 0.12, 160);
+  scene.background = new THREE.Color(0x121018);
+  scene.fog = new THREE.Fog(0x121018, 20, 58);
+  camera = new THREE.PerspectiveCamera(56, innerWidth / innerHeight, 0.12, 140);
   renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setSize(innerWidth, innerHeight);
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.15;
+  renderer.toneMappingExposure = 1.12;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   $("viewport").appendChild(renderer.domElement);
   labels = new CSS2DRenderer();
@@ -124,13 +128,13 @@ function setup() {
   labels.domElement.style.cssText = "position:fixed;inset:0;pointer-events:none;";
   document.body.appendChild(labels.domElement);
   loader = new GLTFLoader();
-  scene.add(new THREE.HemisphereLight(0xffe6d0, 0x121018, 0.95));
-  const sun = new THREE.DirectionalLight(0xfff3dd, 1.55);
+  scene.add(new THREE.HemisphereLight(0xffe6d0, 0x101018, 0.95));
+  const sun = new THREE.DirectionalLight(0xfff3dd, 1.5);
   sun.position.set(8, 18, 7); scene.add(sun);
-  scene.add(new THREE.AmbientLight(0xffffff, 0.38));
-  floor = new THREE.Mesh(
-    new THREE.CircleGeometry(40, 48),
-    new THREE.MeshStandardMaterial({ color: 0x1a1620, roughness: 0.92 })
+  scene.add(new THREE.AmbientLight(0xffffff, 0.36));
+  const floor = new THREE.Mesh(
+    new THREE.CircleGeometry(36, 48),
+    new THREE.MeshStandardMaterial({ color: 0x16121c, roughness: 0.95 })
   );
   floor.rotation.x = -Math.PI / 2; scene.add(floor);
 }
@@ -157,14 +161,13 @@ async function loadWorld(id) {
   worldRoot.position.set(-(b.min.x + b.max.x) * 0.5, -b.min.y, -(b.min.z + b.max.z) * 0.5);
   worldRoot.updateMatrixWorld(true);
   const f = new THREE.Box3().setFromObject(worldRoot);
-  bounds = { minX: f.min.x + 1.2, maxX: f.max.x - 1.2, minZ: f.min.z + 1.2, maxZ: f.max.z - 1.2 };
+  bounds = { minX: f.min.x + 1.4, maxX: f.max.x - 1.4, minZ: f.min.z + 1.4, maxZ: f.max.z - 1.4 };
   scene.add(worldRoot);
   me.world = spec.id;
   me.x = spec.spawn?.x ?? 0;
   me.z = spec.spawn?.z ?? 4;
-  me.y = 0;
   document.querySelectorAll("#worlds button").forEach((btn) => btn.classList.toggle("on", btn.dataset.id === spec.id));
-  toast(spec.name + " · " + spec.engine);
+  toast(spec.name);
 }
 
 async function loadCast(id) {
@@ -192,17 +195,23 @@ function clipsOf(mixer, clips) {
 }
 
 async function wear(id, target = "me", name) {
-  const { root, clips, vrm } = await loadCast(id);
-  const mixer = new THREE.AnimationMixer(root);
-  const actor = { root, mixer, vrm, ...clipsOf(mixer, clips) };
-  actor.idle?.play();
-  tag(actor, name || (target === "me" ? session.profile.name : ""));
-  if (target === "me") {
-    if (myActor?.root) scene.remove(myActor.root);
-    myActor = actor; scene.add(root); me.avatar = id;
-    document.querySelectorAll("#picker button").forEach((b) => b.classList.toggle("on", b.dataset.id === id));
+  if (target === "me" && wearing) return myActor;
+  if (target === "me") wearing = true;
+  try {
+    const { root, clips, vrm } = await loadCast(id);
+    const mixer = new THREE.AnimationMixer(root);
+    const actor = { root, mixer, vrm, ...clipsOf(mixer, clips) };
+    actor.idle?.play();
+    tag(actor, name || (target === "me" ? session.profile.name : ""));
+    if (target === "me") {
+      if (myActor?.root) scene.remove(myActor.root);
+      myActor = actor; scene.add(root); me.avatar = id;
+      document.querySelectorAll("#picker button").forEach((b) => b.classList.toggle("on", b.dataset.id === id));
+    }
+    return actor;
+  } finally {
+    if (target === "me") wearing = false;
   }
-  return actor;
 }
 
 function drawUI() {
@@ -226,7 +235,6 @@ function drawUI() {
 
 function bind() {
   addEventListener("keydown", (e) => {
-    if (e.repeat && chatFocused) return;
     if (e.code === "KeyT" && !chatFocused) { e.preventDefault(); $("chat-input").focus(); return; }
     if (e.code === "Escape") $("chat-input").blur();
     keys[e.code] = true;
@@ -242,12 +250,12 @@ function bind() {
   el.addEventListener("pointerup", () => { dragging = false; });
   el.addEventListener("pointermove", (e) => {
     if (!dragging || chatFocused) return;
-    yaw -= e.movementX * 0.005;
-    pitch = THREE.MathUtils.clamp(pitch - e.movementY * 0.003, 0.06, 1.15);
+    yaw -= e.movementX * 0.0048;
+    pitch = THREE.MathUtils.clamp(pitch - e.movementY * 0.003, 0.08, 1.12);
   });
   el.addEventListener("wheel", (e) => {
     e.preventDefault();
-    dist = THREE.MathUtils.clamp(dist + e.deltaY * 0.01, 2.2, 13);
+    dist = THREE.MathUtils.clamp(dist + e.deltaY * 0.01, 2.3, 12);
   }, { passive: false });
   addEventListener("resize", () => {
     camera.aspect = innerWidth / innerHeight;
@@ -262,9 +270,9 @@ function loco(actor, moving, running) {
   const want = moving ? (running && actor.run ? actor.run : actor.walk || actor.idle) : actor.idle;
   for (const a of [actor.idle, actor.walk, actor.run]) {
     if (!a || a === want) continue;
-    if (a.isRunning()) a.fadeOut(0.12);
+    if (a.isRunning()) a.fadeOut(0.14);
   }
-  if (want && !want.isRunning()) want.reset().fadeIn(0.12).play();
+  if (want && !want.isRunning()) want.reset().fadeIn(0.14).play();
 }
 
 function tick() {
@@ -277,55 +285,64 @@ function tick() {
     if (keys.KeyA || keys.ArrowLeft) fx -= 1;
     if (keys.KeyD || keys.ArrowRight) fx += 1;
   }
-  const len = Math.hypot(fx, fz) || 1;
-  fx /= len; fz /= len;
-  const moving = !chatFocused && !!(keys.KeyW || keys.KeyS || keys.KeyA || keys.KeyD || keys.ArrowUp || keys.ArrowDown || keys.ArrowLeft || keys.ArrowRight);
+  const moving = !chatFocused && (fx !== 0 || fz !== 0);
+  if (moving) {
+    const len = Math.hypot(fx, fz);
+    fx /= len; fz /= len;
+  }
   const running = !!(keys.ShiftLeft || keys.ShiftRight);
-  const speed = running ? 7.2 : 3.7;
+  const speed = running ? 7.1 : 3.6;
   const fX = -Math.sin(yaw), fZ = -Math.cos(yaw);
   const rX = Math.cos(yaw), rZ = -Math.sin(yaw);
-  if (moving) {
-    const vx = fX * fz + rX * fx;
-    const vz = fZ * fz + rZ * fx;
-    me.x = THREE.MathUtils.clamp(me.x + vx * speed * dt, bounds.minX, bounds.maxX);
-    me.z = THREE.MathUtils.clamp(me.z + vz * speed * dt, bounds.minZ, bounds.maxZ);
-    me.yaw = Math.atan2(vx, vz);
-  }
-  me.moving = moving;
+  const tx = moving ? (fX * fz + rX * fx) * speed : 0;
+  const tz = moving ? (fZ * fz + rZ * fx) * speed : 0;
+  vel.x += (tx - vel.x) * Math.min(1, dt * 10);
+  vel.z += (tz - vel.z) * Math.min(1, dt * 10);
+  me.x = THREE.MathUtils.clamp(me.x + vel.x * dt, bounds.minX, bounds.maxX);
+  me.z = THREE.MathUtils.clamp(me.z + vel.z * dt, bounds.minZ, bounds.maxZ);
+  me.moving = Math.hypot(vel.x, vel.z) > 0.35;
+  if (me.moving) me.yaw = Math.atan2(vel.x, vel.z);
 
   if (myActor) {
     myActor.root.position.set(me.x, me.y, me.z);
-    myActor.root.rotation.y = me.yaw;
-    loco(myActor, moving, running);
+    myActor.root.rotation.y += (me.yaw - myActor.root.rotation.y) * Math.min(1, dt * 10);
+    loco(myActor, me.moving, running);
     myActor.mixer.update(dt);
-    if (myActor.vrm) { walkPose(myActor.vrm, clock.elapsedTime, moving, running); myActor.vrm.update(dt); }
+    if (myActor.vrm) { walkPose(myActor.vrm, clock.elapsedTime, me.moving, running); myActor.vrm.update(dt); }
   }
 
   const lookY = me.y + 1.32;
   const cp = Math.cos(pitch), sp = Math.sin(pitch);
-  camera.position.set(me.x + Math.sin(yaw) * cp * dist, lookY + sp * dist, me.z + Math.cos(yaw) * cp * dist);
+  const wantX = me.x + Math.sin(yaw) * cp * dist;
+  const wantY = lookY + sp * dist;
+  const wantZ = me.z + Math.cos(yaw) * cp * dist;
+  cam.x += (wantX - cam.x) * Math.min(1, dt * 8);
+  cam.y += (wantY - cam.y) * Math.min(1, dt * 8);
+  cam.z += (wantZ - cam.z) * Math.min(1, dt * 8);
+  camera.position.set(cam.x, cam.y, cam.z);
   camera.lookAt(me.x, lookY, me.z);
 
   for (const [id, st] of others) {
     let actor = remote.get(id);
-    const want = st.avatar || "aya";
-    if (!actor || actor.root.userData.avatar !== want) {
+    const wantAv = st.avatar || "aya";
+    if (!actor || actor.root.userData.avatar !== wantAv) {
       if (actor?.root) scene.remove(actor.root);
-      wear(want, "remote", st.name).then((a) => {
-        a.root.userData.avatar = want; scene.add(a.root); remote.set(id, a); tag(a, st.name);
+      remote.delete(id);
+      wear(wantAv, "remote", st.name).then((a) => {
+        a.root.userData.avatar = wantAv; scene.add(a.root); remote.set(id, a);
       });
       continue;
     }
     actor.root.position.x += ((st.x ?? 0) - actor.root.position.x) * Math.min(1, dt * 8);
     actor.root.position.z += ((st.y ?? 0) - actor.root.position.z) * Math.min(1, dt * 8);
-    if (st.angle != null) actor.root.rotation.y = st.angle;
-    if (st.name) tag(actor, st.name);
+    if (st.angle != null) actor.root.rotation.y += (st.angle - actor.root.rotation.y) * Math.min(1, dt * 8);
+    tag(actor, st.name || "Guest");
     loco(actor, !!st.moving, false);
     actor.mixer.update(dt);
     if (actor.vrm) { walkPose(actor.vrm, clock.elapsedTime, !!st.moving, false); actor.vrm.update(dt); }
   }
 
-  session.sendState({ x: me.x, y: me.z, angle: me.yaw, moving, avatar: me.avatar });
+  session.sendState({ x: me.x, y: me.z, angle: me.yaw, moving: me.moving, avatar: me.avatar });
   renderer.render(scene, camera);
   labels.render(scene, camera);
 }
