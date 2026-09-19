@@ -6,7 +6,6 @@ import { CAST } from "./avatars.js";
 
 const BODY_R = 0.48;
 const PEER_R = 0.85;
-
 const $ = (id) => document.getElementById(id);
 const others = new Map();
 const remoteActors = new Map();
@@ -18,8 +17,8 @@ let chatFocused = false;
 let scene, camera, renderer, clock, loader;
 let worldRoot = null;
 let colliders = [];
-let bounds = { minX: -20, maxX: 20, minZ: -20, maxZ: 20 };
-let me = { x: 0, z: 2, y: 0, yaw: 0, moving: false, avatar: "aya", world: "sponza" };
+let bounds = { minX: -12, maxX: 12, minZ: -12, maxZ: 12 };
+let me = { x: 0, z: 3, y: 0, yaw: 0, moving: false, avatar: "aya", world: "sponza" };
 let myActor = null;
 let camYaw = 0, camPitch = 0.22;
 let vrmPlugin = null;
@@ -27,7 +26,7 @@ let vrmPlugin = null;
 function toast(t) {
   const el = $("toast"); if (!el) return;
   el.textContent = t; el.classList.add("show");
-  clearTimeout(toast._t); toast._t = setTimeout(() => el.classList.remove("show"), 2600);
+  clearTimeout(toast._t); toast._t = setTimeout(() => el.classList.remove("show"), 2800);
 }
 function log(t) {
   const box = $("chat-log"); if (!box) return;
@@ -57,10 +56,7 @@ const session = createSession({
     remoteActors.delete(id); pills();
   },
   onRoster: pills,
-  onChat(_f, text, name) {
-    log(`${name}: ${text}`);
-    for (const a of remoteActors.values()) playOnce(a, "wave");
-  },
+  onChat(_f, text, name) { log(`${name}: ${text}`); },
 });
 
 session.setProfile({ name: localStorage.getItem("hangout_name") || "you" });
@@ -72,13 +68,13 @@ $("who").onclick = () => {
 $("chat-form").onsubmit = (e) => {
   e.preventDefault();
   const inp = $("chat-input"); const t = inp.value.trim(); if (!t) return;
-  log(`${session.profile.name}: ${t}`); session.sendChat?.(t); playOnce(myActor, "wave"); inp.value = ""; inp.blur();
+  log(`${session.profile.name}: ${t}`); session.sendChat?.(t); inp.value = ""; inp.blur();
 };
 $("chat-input").onfocus = () => { chatFocused = true; };
 $("chat-input").onblur = () => { chatFocused = false; };
 
 function clipOf(clips, names) {
-  const lower = clips.map((c) => [c, c.name.toLowerCase()]);
+  const lower = (clips || []).map((c) => [c, c.name.toLowerCase()]);
   for (const n of names) {
     const hit = lower.find(([, nm]) => nm === n || nm.includes(n));
     if (hit) return hit[0];
@@ -90,47 +86,38 @@ function makeActor(root, clips) {
   const mk = (names) => {
     const c = clipOf(clips, names);
     if (!c) return null;
-    const a = mixer.clipAction(c); a.enabled = true; return a;
+    return mixer.clipAction(c);
   };
   const actor = {
     root, mixer,
-    idle: mk(["idle", "idle_standing", "wait"]),
-    walk: mk(["walk", "walking", "walk_forward"]),
-    run: mk(["run", "running", "sprint"]),
-    wave: mk(["wave", "thumbsup", "yes", "dance"]),
+    idle: mk(["idle", "wait"]),
+    walk: mk(["walk", "walking"]),
+    run: mk(["run", "running"]),
+    wave: mk(["wave", "dance"]),
     current: null,
   };
-  if (actor.idle) { actor.idle.play(); actor.current = "idle"; }
+  actor.idle?.play();
+  actor.current = actor.idle ? "idle" : null;
   return actor;
 }
 function setLocomotion(actor, moving, running) {
   if (!actor) return;
   const next = moving ? (running && actor.run ? "run" : actor.walk ? "walk" : "idle") : "idle";
-  if (actor.current === next || actor.current === "wave") return;
+  if (!actor[next] || actor.current === next) return;
   const from = actor[actor.current];
   const to = actor[next];
-  if (to) { to.reset().fadeIn(0.15).play(); if (from && from !== to) from.fadeOut(0.15); actor.current = next; }
-}
-function playOnce(actor, name) {
-  if (!actor?.[name]) return;
-  const act = actor[name];
-  act.reset().setLoop(THREE.LoopOnce, 1); act.clampWhenFinished = true;
-  act.fadeIn(0.1).play();
-  actor.current = name;
-  const done = () => { actor.mixer.removeEventListener("finished", done); actor.current = "idle"; actor.idle?.reset().fadeIn(0.2).play(); };
-  actor.mixer.addEventListener("finished", done);
+  to.reset().fadeIn(0.15).play();
+  if (from && from !== to) from.fadeOut(0.15);
+  actor.current = next;
 }
 
 function firstHit(ox, oy, oz, dx, dy, dz, far) {
   if (!colliders.length) return null;
   const len = Math.hypot(dx, dy, dz);
   if (len < 1e-8) return null;
-  _o.set(ox, oy, oz);
-  _d.set(dx / len, dy / len, dz / len);
-  ray.set(_o, _d);
-  ray.far = far;
-  const hits = ray.intersectObjects(colliders, false);
-  return hits[0] || null;
+  _o.set(ox, oy, oz); _d.set(dx / len, dy / len, dz / len);
+  ray.set(_o, _d); ray.far = far;
+  return ray.intersectObjects(colliders, false)[0] || null;
 }
 function blocked(x, z, mx, mz) {
   const dist = Math.hypot(mx, mz);
@@ -148,19 +135,16 @@ function slide(x, z, mx, mz) {
   return { x: nx, z: nz };
 }
 function groundY(x, z) {
-  const h = firstHit(x, Math.max(me.y, 0) + 3.2, z, 0, -1, 0, 12);
-  return h ? h.point.y : me.y;
+  const h = firstHit(x, 4, z, 0, -1, 0, 10);
+  if (!h || !Number.isFinite(h.point.y)) return 0;
+  return THREE.MathUtils.clamp(h.point.y, -0.2, 2.8);
 }
 function separatePeers(x, z) {
   let px = x, pz = z;
   for (const st of others.values()) {
-    const ox = st.x ?? 0, oz = st.y ?? 0;
-    const dx = px - ox, dz = pz - oz;
+    const dx = px - (st.x ?? 0), dz = pz - (st.y ?? 0);
     const d = Math.hypot(dx, dz);
-    if (d < PEER_R && d > 1e-4) {
-      const k = (PEER_R - d) / d;
-      px += dx * k; pz += dz * k;
-    } else if (d <= 1e-4) px += 0.2;
+    if (d < PEER_R && d > 1e-4) { const k = (PEER_R - d) / d; px += dx * k; pz += dz * k; }
   }
   return { x: px, z: pz };
 }
@@ -175,21 +159,21 @@ function setupRenderer() {
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   renderer.shadowMap.enabled = true;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.2;
+  renderer.toneMappingExposure = 1.25;
   $("viewport").appendChild(renderer.domElement);
   loader = new GLTFLoader();
-  scene.add(new THREE.HemisphereLight(0xffe8d0, 0x121018, 0.85));
-  const sun = new THREE.DirectionalLight(0xfff3dd, 1.6);
-  sun.position.set(10, 22, 8); sun.castShadow = true; scene.add(sun);
-  scene.add(new THREE.AmbientLight(0xffffff, 0.28));
+  scene.add(new THREE.HemisphereLight(0xffe8d0, 0x121018, 1.0));
+  const sun = new THREE.DirectionalLight(0xfff3dd, 1.8);
+  sun.position.set(6, 14, 8); sun.castShadow = true; scene.add(sun);
+  scene.add(new THREE.AmbientLight(0xffffff, 0.45));
 }
+
 async function enableVrm() {
-  if (vrmPlugin) return;
-  try {
-    const mod = await import("@pixiv/three-vrm");
-    loader.register((p) => new mod.VRMLoaderPlugin(p));
-    vrmPlugin = mod;
-  } catch (e) { console.warn("vrm plugin", e); }
+  if (vrmPlugin) return vrmPlugin;
+  const mod = await import("@pixiv/three-vrm");
+  loader.register((p) => new mod.VRMLoaderPlugin(p));
+  vrmPlugin = mod;
+  return mod;
 }
 
 async function loadWorld(id) {
@@ -200,10 +184,7 @@ async function loadWorld(id) {
   worldRoot = gltf.scene;
   colliders = [];
   worldRoot.traverse((o) => {
-    if (o.isMesh) {
-      o.castShadow = true; o.receiveShadow = true; o.frustumCulled = false;
-      colliders.push(o);
-    }
+    if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; o.frustumCulled = false; colliders.push(o); }
   });
   const box = new THREE.Box3().setFromObject(worldRoot);
   const size = new THREE.Vector3(); box.getSize(size);
@@ -223,16 +204,12 @@ async function loadWorld(id) {
   me.z = THREE.MathUtils.clamp(spec.spawn.z, bounds.minZ, bounds.maxZ);
   me.y = groundY(me.x, me.z);
   document.querySelectorAll("#worlds button").forEach((b) => b.classList.toggle("on", b.dataset.id === spec.id));
-  toast(spec.name + " · collide on");
+  toast(spec.name);
 }
 
-const cache = new Map();
 async function loadCast(id) {
-  if (cache.has(id)) {
-    const hit = cache.get(id);
-    return { root: hit.root.clone(), clips: hit.clips };
-  }
   const spec = CAST.find((c) => c.id === id) || CAST[0];
+  toast("loading " + spec.name + "…");
   if (spec.vrm) await enableVrm();
   const gltf = await loader.loadAsync(spec.url);
   const vrm = gltf.userData && gltf.userData.vrm;
@@ -240,22 +217,38 @@ async function loadCast(id) {
     try { vrmPlugin.VRMUtils.rotateVRM0(vrm); } catch {}
   }
   const root = vrm ? vrm.scene : gltf.scene;
-  root.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.frustumCulled = false; } });
+  root.visible = true;
+  root.traverse((o) => {
+    if (!o.isMesh) return;
+    o.visible = true;
+    o.castShadow = true;
+    o.frustumCulled = false;
+    const mats = Array.isArray(o.material) ? o.material : [o.material];
+    for (const m of mats) {
+      if (!m) continue;
+      m.side = THREE.DoubleSide;
+      m.depthWrite = true;
+    }
+  });
   root.scale.setScalar(spec.scale || 1);
-  const clips = gltf.animations || [];
-  cache.set(id, { root, clips });
-  return { root: root.clone(), clips };
+  return { root, clips: gltf.animations || [] };
 }
+
 async function wear(id, target = "me") {
   const { root, clips } = await loadCast(id);
   const actor = makeActor(root, clips);
   if (target === "me") {
     if (myActor?.root) scene.remove(myActor.root);
-    myActor = actor; scene.add(root); me.avatar = id;
+    myActor = actor;
+    scene.add(root);
+    root.position.set(me.x, me.y, me.z);
+    me.avatar = id;
     document.querySelectorAll("#picker button").forEach((b) => b.classList.toggle("on", b.dataset.id === id));
+    toast(CAST.find((c) => c.id === id)?.name || id);
   }
   return actor;
 }
+
 function drawPickers() {
   const av = $("picker"); av.innerHTML = "";
   for (const c of CAST) {
@@ -282,6 +275,7 @@ function drawPickers() {
     worlds.appendChild(b);
   }
 }
+
 function bind() {
   addEventListener("keydown", (e) => {
     if (e.code === "KeyT" && !chatFocused) { e.preventDefault(); $("chat-input").focus(); return; }
@@ -326,14 +320,14 @@ function tick() {
     const bob = (!myActor.walk && me.moving) ? Math.abs(Math.sin(clock.elapsedTime * 9)) * 0.06 : 0;
     myActor.root.position.set(me.x, me.y + bob, me.z);
     myActor.root.rotation.y = me.yaw;
+    myActor.root.visible = true;
     setLocomotion(myActor, me.moving, running);
     myActor.mixer.update(dt);
   }
-  const back = 4.4;
   camera.position.set(
-    me.x + Math.sin(camYaw) * Math.cos(camPitch) * back,
+    me.x + Math.sin(camYaw) * Math.cos(camPitch) * 4.4,
     me.y + 1.7 + Math.sin(camPitch) * 2.2,
-    me.z + Math.cos(camYaw) * Math.cos(camPitch) * back
+    me.z + Math.cos(camYaw) * Math.cos(camPitch) * 4.4
   );
   camera.lookAt(me.x, me.y + 1.25, me.z);
 
@@ -344,7 +338,8 @@ function tick() {
       if (actor?.root) scene.remove(actor.root);
       wear(want, "remote").then((a) => {
         a.root.userData.avatar = want;
-        scene.add(a.root); remoteActors.set(id, a);
+        scene.add(a.root);
+        remoteActors.set(id, a);
       });
       continue;
     }
@@ -363,7 +358,12 @@ clock = new THREE.Clock();
 bind();
 drawPickers();
 pills();
-Promise.all([enableVrm(), loadWorld("sponza"), wear(me.avatar)])
-  .then(() => tick())
-  .catch((e) => { console.warn(e); loadWorld("house").then(() => tick()); });
+tick();
+
+enableVrm()
+  .then(() => wear("aya"))
+  .catch((e) => { console.warn(e); toast("VRM failed, using robot"); return wear("robot"); })
+  .then(() => loadWorld("sponza"))
+  .catch((e) => { console.warn(e); return loadWorld("house"); });
+
 session.autoEnter?.("LAN").then(() => setLink("in world", "ok")).catch(() => setLink("solo", "dim"));
