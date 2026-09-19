@@ -1,97 +1,95 @@
 import { createSession, COLORS } from "./multiplayer.js";
 
 const others = new Map();
-let colorIdx = 0;
+const avatars = new Map();
+const keys = {};
 let chatFocused = false;
+let scene, camera, renderer, clock, player, pointerLocked;
 
 const $ = (id) => document.getElementById(id);
-const logEl = $("chat-log");
-const rosterEl = $("roster-list");
+
+function toast(text) {
+  const el = $("toast");
+  el.textContent = text;
+  el.classList.add("show");
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => el.classList.remove("show"), 2200);
+}
 
 function log(text, cls = "") {
   const p = document.createElement("div");
   if (cls) p.className = cls;
   p.textContent = text;
-  logEl.appendChild(p);
-  logEl.scrollTop = logEl.scrollHeight;
+  $("chat-log").appendChild(p);
+  $("chat-log").scrollTop = $("chat-log").scrollHeight;
+  $("chat").classList.add("open");
+  clearTimeout(log._t);
+  log._t = setTimeout(() => { if (!chatFocused) $("chat").classList.remove("open"); }, 4000);
 }
 
-function renderRoster(selfName, selfColor) {
-  rosterEl.innerHTML = "";
-  const add = (name, color, tag) => {
+function pills() {
+  const el = $("pills");
+  el.innerHTML = "";
+  const add = (name, color) => {
     const li = document.createElement("li");
-    li.innerHTML = `<span class="dot" style="background:${color}"></span>${name}${tag ? " · " + tag : ""}`;
-    rosterEl.appendChild(li);
+    li.innerHTML = `<span class="dot" style="background:${color}"></span>${name}`;
+    el.appendChild(li);
   };
-  add(selfName, selfColor, "you");
-  add("Bit", "#55c8ff", "npc");
-  add("Nox", "#ff7aa8", "npc");
-  for (const [, p] of others) add(p.name || "Guest", p.color || "#fff");
+  add(session.profile.name, session.profile.color);
+  add("Bit", "#55c8ff");
+  add("Nox", "#ff7aa8");
+  for (const p of others.values()) add(p.name || "Guest", p.color || "#fff");
+}
+
+function setLink(text, kind) {
+  const el = $("link");
+  el.textContent = text;
+  el.className = kind || "dim";
 }
 
 const session = createSession({
   onStatus(msg, kind) {
-    const el = $("mp-status");
-    el.textContent = msg;
-    el.className = "status " + (kind || "");
-    $("room-label").textContent = session.room ? `room ${session.room}` : "public lobby";
+    if (kind === "good") setLink("together", "ok");
+    else setLink(msg.replace(/Room \w+ — /, "").toLowerCase(), kind === "bad" ? "bad" : "dim");
   },
   onState(id, st) {
-    const prev = others.get(id) || {};
-    others.set(id, { ...prev, ...st });
-    renderRoster(session.profile.name, session.profile.color);
+    const first = !others.has(id);
+    others.set(id, { ...(others.get(id) || {}), ...st });
+    if (first && st.name) toast(`${st.name} walked in`);
+    pills();
   },
   onLeave(id) {
     const p = others.get(id);
-    if (p) log(`${p.name || "Someone"} left`, "sys");
+    if (p?.name) toast(`${p.name} left`);
     others.delete(id);
     const mesh = avatars.get(id);
-    if (mesh) {
-      scene.remove(mesh);
-      avatars.delete(id);
-    }
-    renderRoster(session.profile.name, session.profile.color);
+    if (mesh && scene) scene.remove(mesh);
+    avatars.delete(id);
+    pills();
   },
-  onRoster() {
-    renderRoster(session.profile.name, session.profile.color);
-  },
-  onChat(from, text, name) {
-    log(`${name || from}: ${text}`);
+  onRoster: pills,
+  onChat(_from, text, name) {
+    log(`${name}: ${text}`);
   },
 });
 
-$("mp-name").value = session.profile.name === "Player" ? "" : session.profile.name;
-$("mp-color").style.color = session.profile.color;
-$("mp-color").onclick = () => {
-  colorIdx = (colorIdx + 1) % COLORS.length;
-  const c = session.pickColor(colorIdx);
-  $("mp-color").style.color = c.color;
-};
-$("mp-name").onchange = () => session.setProfile({ name: $("mp-name").value || "You" });
+function guestName() {
+  const n = localStorage.getItem("hangout_name");
+  if (n && n !== "Player") return n;
+  return "you";
+}
 
-$("enter-solo").onclick = () => startWorld();
-$("mp-host").onclick = async () => {
-  session.setProfile({ name: $("mp-name").value || "You" });
-  try {
-    const r = await session.host($("mp-code").value);
-    $("mp-code").value = r.room;
-    startWorld();
-    log(`Hosted room ${r.room}`, "sys");
-  } catch (e) {
-    $("mp-status").textContent = e.message || String(e);
-    $("mp-status").className = "status bad";
-  }
-};
-$("mp-join").onclick = async () => {
-  session.setProfile({ name: $("mp-name").value || "You" });
-  try {
-    await session.join($("mp-code").value);
-    startWorld();
-    log(`Joined ${session.room}`, "sys");
-  } catch (e) {
-    $("mp-status").textContent = e.message || String(e);
-    $("mp-status").className = "status bad";
-  }
+session.setProfile({ name: guestName() });
+if (!localStorage.getItem("hangout_color")) {
+  session.pickColor((Math.random() * COLORS.length) | 0);
+}
+$("who").textContent = session.profile.name;
+$("who").onclick = () => {
+  const name = prompt("Name", session.profile.name);
+  if (!name) return;
+  session.setProfile({ name });
+  $("who").textContent = session.profile.name;
+  pills();
 };
 
 $("chat-form").addEventListener("submit", (e) => {
@@ -103,16 +101,17 @@ $("chat-form").addEventListener("submit", (e) => {
   session.sendChat?.(t);
   inp.value = "";
   inp.blur();
-  chatFocused = false;
 });
-$("chat-input").addEventListener("focus", () => { chatFocused = true; });
-$("chat-input").addEventListener("blur", () => { chatFocused = false; });
-
-let scene, camera, renderer, clock;
-let player;
-const avatars = new Map();
-const keys = {};
-let pointerLocked = false;
+$("chat-input").addEventListener("focus", () => {
+  chatFocused = true;
+  $("chat").classList.add("open");
+  $("chat").classList.remove("idle");
+});
+$("chat-input").addEventListener("blur", () => {
+  chatFocused = false;
+  $("chat").classList.add("idle");
+  $("chat").classList.remove("open");
+});
 
 function makeAvatar(color, headColor, name) {
   const g = new THREE.Group();
@@ -133,28 +132,29 @@ function makeAvatar(color, headColor, name) {
   );
   visor.position.set(0, 1.5, 0.16);
   g.add(body, head, visor);
-
   const canvas = document.createElement("canvas");
   canvas.width = 256; canvas.height = 64;
   const ctx = canvas.getContext("2d");
-  ctx.fillStyle = "rgba(0,0,0,0.55)";
-  ctx.fillRect(0, 0, 256, 64);
+  ctx.fillStyle = "rgba(0,0,0,.5)";
+  ctx.fillRect(0, 16, 256, 36);
   ctx.fillStyle = "#fff";
-  ctx.font = "28px sans-serif";
+  ctx.font = "26px sans-serif";
   ctx.textAlign = "center";
   ctx.fillText(name || "?", 128, 42);
   const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true }));
-  spr.scale.set(1.4, 0.35, 1);
-  spr.position.y = 1.9;
+  spr.scale.set(1.3, 0.32, 1);
+  spr.position.y = 1.88;
   g.add(spr);
-  g.userData.sprite = spr;
   return g;
 }
 
 function addBox(x, y, z, w, h, d, color, opts = {}) {
   const m = new THREE.Mesh(
     new THREE.BoxGeometry(w, h, d),
-    new THREE.MeshStandardMaterial({ color, roughness: opts.rough ?? 0.7, metalness: opts.metal ?? 0, emissive: opts.emissive || 0, emissiveIntensity: opts.ei || 0 })
+    new THREE.MeshStandardMaterial({
+      color, roughness: opts.rough ?? 0.7, metalness: 0,
+      emissive: opts.emissive || 0, emissiveIntensity: opts.ei || 0,
+    })
   );
   m.position.set(x, y, z);
   m.castShadow = true;
@@ -167,7 +167,6 @@ function buildLobby() {
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0x0b0810);
   scene.fog = new THREE.Fog(0x0b0810, 18, 48);
-
   camera = new THREE.PerspectiveCamera(72, innerWidth / innerHeight, 0.08, 80);
   renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setSize(innerWidth, innerHeight);
@@ -179,7 +178,6 @@ function buildLobby() {
   const key = new THREE.DirectionalLight(0xffc9a0, 1.1);
   key.position.set(6, 12, 4);
   key.castShadow = true;
-  key.shadow.mapSize.set(1024, 1024);
   scene.add(key);
   const neon = new THREE.PointLight(0xff7a3d, 2.2, 18);
   neon.position.set(0, 3.2, -6);
@@ -195,7 +193,6 @@ function buildLobby() {
   floor.rotation.x = -Math.PI / 2;
   floor.receiveShadow = true;
   scene.add(floor);
-
   const grid = new THREE.GridHelper(28, 28, 0x3a2a22, 0x221810);
   grid.position.y = 0.01;
   scene.add(grid);
@@ -204,50 +201,28 @@ function buildLobby() {
   addBox(0, 2, 14, 28, 4, 0.4, 0x1a1418);
   addBox(-14, 2, 0, 0.4, 4, 28, 0x1a1418);
   addBox(14, 2, 0, 0.4, 4, 28, 0x1a1418);
-
   addBox(0, 0.25, -10, 8, 0.5, 4, 0x3a2a22);
   addBox(0, 2.4, -12.2, 6, 2.2, 0.12, 0x111018, { emissive: 0xff5522, ei: 0.25 });
-
   addBox(-6, 0.35, 2, 3.2, 0.7, 1.2, 0x6b3a2a);
   addBox(-6, 0.7, 2.55, 3.2, 0.7, 0.3, 0x5a3024);
   addBox(6, 0.35, 2, 3.2, 0.7, 1.2, 0x3a4a6b);
   addBox(6, 0.7, 2.55, 3.2, 0.7, 0.3, 0x2e3c58);
-
   addBox(-6, 0.35, 0.4, 1.4, 0.08, 1.4, 0xc9a46a);
   addBox(6, 0.35, 0.4, 1.4, 0.08, 1.4, 0xc9a46a);
   addBox(0, 0.45, 6, 2.4, 0.9, 2.4, 0x243028, { emissive: 0x114422, ei: 0.15 });
+  for (const x of [-8, 0, 8]) addBox(x, 3.7, 0, 1.6, 0.08, 1.6, 0xffd8a8, { emissive: 0xffcc88, ei: 0.6 });
 
-  for (const x of [-8, 0, 8]) {
-    addBox(x, 3.7, 0, 1.6, 0.08, 1.6, 0xffd8a8, { emissive: 0xffcc88, ei: 0.6 });
-  }
-
-  player = {
-    x: 0, y: 1.6, z: 6,
-    vx: 0, vz: 0, vy: 0,
-    yaw: Math.PI, pitch: 0,
-    moving: false,
-  };
+  player = { x: 0, y: 1.6, z: 6, vy: 0, yaw: Math.PI, pitch: 0, moving: false };
 
   const bit = makeAvatar("#55c8ff", "#d0f0ff", "Bit");
   bit.position.set(-4, 0, -2);
+  bit.userData.wander = { ox: -4, oz: -2, t: 0 };
   scene.add(bit);
   const nox = makeAvatar("#ff7aa8", "#ffd0e4", "Nox");
   nox.position.set(4.2, 0, -1.2);
-  scene.add(nox);
-  bit.userData.wander = { ox: -4, oz: -2, t: 0 };
   nox.userData.wander = { ox: 4.2, oz: -1.2, t: 1.7 };
+  scene.add(nox);
   scene.userData.npcs = [bit, nox];
-}
-
-function startWorld() {
-  $("gate").classList.add("hidden");
-  if (!scene) {
-    buildLobby();
-    clock = new THREE.Clock();
-    bindControls();
-    renderRoster(session.profile.name, session.profile.color);
-    tick();
-  }
 }
 
 function bindControls() {
@@ -261,17 +236,15 @@ function bindControls() {
     keys[e.code] = true;
   });
   addEventListener("keyup", (e) => { keys[e.code] = false; });
-  renderer.domElement.addEventListener("click", () => {
-    renderer.domElement.requestPointerLock();
-  });
+  renderer.domElement.addEventListener("click", () => renderer.domElement.requestPointerLock());
   document.addEventListener("pointerlockchange", () => {
     pointerLocked = document.pointerLockElement === renderer.domElement;
+    if (pointerLocked) $("hint").classList.add("off");
   });
   addEventListener("mousemove", (e) => {
     if (!pointerLocked || chatFocused) return;
     player.yaw -= e.movementX * 0.0022;
-    player.pitch -= e.movementY * 0.0022;
-    player.pitch = Math.max(-1.2, Math.min(1.2, player.pitch));
+    player.pitch = Math.max(-1.2, Math.min(1.2, player.pitch - e.movementY * 0.0022));
   });
   addEventListener("resize", () => {
     camera.aspect = innerWidth / innerHeight;
@@ -288,7 +261,6 @@ function tick() {
   requestAnimationFrame(tick);
   const dt = Math.min(clock.getDelta(), 0.05);
   const t = clock.elapsedTime;
-
   let ix = 0, iz = 0;
   if (!chatFocused) {
     if (keys.KeyW || keys.ArrowUp) iz -= 1;
@@ -301,8 +273,8 @@ function tick() {
   const cs = Math.cos(player.yaw), sn = Math.sin(player.yaw);
   const mx = (ix * cs + iz * sn) * speed;
   const mz = (iz * cs - ix * sn) * speed;
-  let nx = player.x + mx * dt;
-  let nz = player.z + mz * dt;
+  const nx = player.x + mx * dt;
+  const nz = player.z + mz * dt;
   if (!collide(nx, player.z)) player.x = nx;
   if (!collide(player.x, nz)) player.z = nz;
   player.vy -= 14 * dt;
@@ -337,13 +309,19 @@ function tick() {
     if (st.angle != null) mesh.rotation.y += (st.angle - mesh.rotation.y) * Math.min(1, dt * 8);
   }
 
-  session.sendState({
-    x: player.x,
-    y: player.z,
-    angle: player.yaw,
-    moving: player.moving,
-    walkPhase: t,
-  });
-
+  session.sendState({ x: player.x, y: player.z, angle: player.yaw, moving: player.moving, walkPhase: t });
   renderer.render(scene, camera);
 }
+
+buildLobby();
+clock = new THREE.Clock();
+bindControls();
+pills();
+tick();
+
+session.autoEnter("LAN").then((r) => {
+  setLink(r.role === "host" ? "open for this wifi" : "together", "ok");
+}).catch((e) => {
+  setLink("solo for now", "dim");
+  console.warn(e);
+});
