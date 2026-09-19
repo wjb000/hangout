@@ -2,20 +2,8 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { createSession } from "./multiplayer.js";
 import { WORLDS } from "./worlds.js";
+import { CAST } from "./avatars.js";
 
-const BASE = "https://cdn.jsdelivr.net/gh/mrdoob/three.js@r160/examples/models/gltf/";
-const CAST = [
-  { id: "xbot", name: "Xbot", url: BASE + "Xbot.glb", scale: 1 },
-  { id: "soldier", name: "Soldier", url: BASE + "Soldier.glb", scale: 1 },
-  { id: "robot", name: "Robot", url: BASE + "RobotExpressive/RobotExpressive.glb", scale: 1 },
-  {
-    id: "vrm",
-    name: "VRM",
-    url: "https://cdn.jsdelivr.net/gh/pixiv/three-vrm@release/packages/three-vrm/examples/models/VRM1_Constraint_Twist_Sample.vrm",
-    scale: 1,
-    vrm: true,
-  },
-];
 const BODY_R = 0.48;
 const PEER_R = 0.85;
 
@@ -31,7 +19,7 @@ let scene, camera, renderer, clock, loader;
 let worldRoot = null;
 let colliders = [];
 let bounds = { minX: -20, maxX: 20, minZ: -20, maxZ: 20 };
-let me = { x: 0, z: 2, y: 0, yaw: 0, moving: false, avatar: "robot", world: "sponza" };
+let me = { x: 0, z: 2, y: 0, yaw: 0, moving: false, avatar: "aya", world: "sponza" };
 let myActor = null;
 let camYaw = 0, camPitch = 0.22;
 let vrmPlugin = null;
@@ -95,7 +83,7 @@ function clipOf(clips, names) {
     const hit = lower.find(([, nm]) => nm === n || nm.includes(n));
     if (hit) return hit[0];
   }
-  return clips[0] || null;
+  return null;
 }
 function makeActor(root, clips) {
   const mixer = new THREE.AnimationMixer(root);
@@ -171,11 +159,8 @@ function separatePeers(x, z) {
     const d = Math.hypot(dx, dz);
     if (d < PEER_R && d > 1e-4) {
       const k = (PEER_R - d) / d;
-      px += dx * k;
-      pz += dz * k;
-    } else if (d <= 1e-4) {
-      px += 0.2;
-    }
+      px += dx * k; pz += dz * k;
+    } else if (d <= 1e-4) px += 0.2;
   }
   return { x: px, z: pz };
 }
@@ -250,9 +235,13 @@ async function loadCast(id) {
   const spec = CAST.find((c) => c.id === id) || CAST[0];
   if (spec.vrm) await enableVrm();
   const gltf = await loader.loadAsync(spec.url);
-  const root = gltf.scene;
+  const vrm = gltf.userData && gltf.userData.vrm;
+  if (vrm && vrmPlugin?.VRMUtils?.rotateVRM0) {
+    try { vrmPlugin.VRMUtils.rotateVRM0(vrm); } catch {}
+  }
+  const root = vrm ? vrm.scene : gltf.scene;
   root.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.frustumCulled = false; } });
-  root.scale.setScalar(spec.scale);
+  root.scale.setScalar(spec.scale || 1);
   const clips = gltf.animations || [];
   cache.set(id, { root, clips });
   return { root: root.clone(), clips };
@@ -323,20 +312,19 @@ function tick() {
   const running = !!(keys.ShiftLeft || keys.ShiftRight);
   const speed = running ? 6.4 : 3.3;
   const cs = Math.cos(camYaw), sn = Math.sin(camYaw);
-  let mx = (ix * cs + iz * sn) * speed * dt;
-  let mz = (iz * cs - ix * sn) * speed * dt;
-
+  const mx = (ix * cs + iz * sn) * speed * dt;
+  const mz = (iz * cs - ix * sn) * speed * dt;
   const stepped = slide(me.x, me.z, mx, mz);
   const parted = separatePeers(stepped.x, stepped.z);
   me.x = THREE.MathUtils.clamp(parted.x, bounds.minX, bounds.maxX);
   me.z = THREE.MathUtils.clamp(parted.z, bounds.minZ, bounds.maxZ);
   me.y = THREE.MathUtils.damp(me.y, groundY(me.x, me.z), 8, dt);
-  me.moving = Math.hypot(mx, mz) > 0.0008 && (Math.abs(me.x - stepped.x) < 2);
   me.moving = Math.hypot(mx, mz) > 0.0008;
   if (me.moving) me.yaw = Math.atan2(mx, mz);
 
   if (myActor) {
-    myActor.root.position.set(me.x, me.y, me.z);
+    const bob = (!myActor.walk && me.moving) ? Math.abs(Math.sin(clock.elapsedTime * 9)) * 0.06 : 0;
+    myActor.root.position.set(me.x, me.y + bob, me.z);
     myActor.root.rotation.y = me.yaw;
     setLocomotion(myActor, me.moving, running);
     myActor.mixer.update(dt);
@@ -351,10 +339,11 @@ function tick() {
 
   for (const [id, st] of others) {
     let actor = remoteActors.get(id);
-    if (!actor || actor.root.userData.avatar !== (st.avatar || "robot")) {
+    const want = st.avatar || "aya";
+    if (!actor || actor.root.userData.avatar !== want) {
       if (actor?.root) scene.remove(actor.root);
-      wear(st.avatar || "robot", "remote").then((a) => {
-        a.root.userData.avatar = st.avatar || "robot";
+      wear(want, "remote").then((a) => {
+        a.root.userData.avatar = want;
         scene.add(a.root); remoteActors.set(id, a);
       });
       continue;
@@ -374,7 +363,7 @@ clock = new THREE.Clock();
 bind();
 drawPickers();
 pills();
-Promise.all([loadWorld("sponza"), wear(me.avatar)])
+Promise.all([enableVrm(), loadWorld("sponza"), wear(me.avatar)])
   .then(() => tick())
   .catch((e) => { console.warn(e); loadWorld("house").then(() => tick()); });
 session.autoEnter?.("LAN").then(() => setLink("in world", "ok")).catch(() => setLink("solo", "dim"));
