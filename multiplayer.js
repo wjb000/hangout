@@ -262,8 +262,8 @@ export function createSession(api) {
     const conn = peer.connect(`hang-${c}`, { reliable: true });
     await new Promise((resolve, reject) => {
       const t = setTimeout(
-        () => reject(new Error("Timed out — host must have the room open on the same Wi‑Fi")),
-        14000
+        () => reject(new Error("no host yet")),
+        4000
       );
       conn.on("open", () => {
         clearTimeout(t);
@@ -277,6 +277,18 @@ export function createSession(api) {
     });
     status(`Joined room ${c}`, "good");
     return { role, room: c, id: selfId };
+  }
+
+  async function autoEnter(code = "LAN") {
+    try {
+      return await join(code);
+    } catch {
+      try {
+        return await host(code);
+      } catch {
+        return await join(code);
+      }
+    }
   }
 
   function setProfile({ name, color, headColor } = {}) {
@@ -351,6 +363,7 @@ export function createSession(api) {
   return {
     host,
     join,
+    autoEnter,
     setProfile,
     pickColor,
     sendState,
