@@ -2,93 +2,56 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
-  <title>Hangout</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Hangout — Lobby</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <canvas id="world" aria-label="world"></canvas>
+  <div id="viewport"></div>
 
-  <!-- Minimal top-left identity -->
-  <div id="ui-corner">
-    <span id="ui-title">hangout</span>
-    <span id="day-label">—</span>
+  <div id="hud">
+    <div id="hud-tl">
+      <div class="brand">HANGOUT</div>
+      <div class="sub" id="room-label">public lobby</div>
+    </div>
+    <div id="crosshair">+</div>
+    <div id="hint">click to look · WASD move · Space jump · T chat · Esc release mouse</div>
   </div>
 
-  <!-- Center topic when chatting -->
-  <div id="topic-pill" class="hidden" aria-live="polite">
-    <span id="topic-text"></span>
+  <div id="chat">
+    <div id="chat-log"></div>
+    <form id="chat-form">
+      <input id="chat-input" maxlength="160" placeholder="T to talk…" autocomplete="off" />
+    </form>
   </div>
 
-  <!-- Speech log -->
-  <div id="chatlog" aria-label="speech"></div>
+  <aside id="roster">
+    <h3>In lobby</h3>
+    <ul id="roster-list"></ul>
+  </aside>
 
-  <!-- Bottom strip: people + essential tools only -->
-  <nav id="bar">
-    <div class="people">
-      <button type="button" class="p bit" id="focus-bit" aria-label="Bit">
-        <span class="orb"></span>
-        <span class="txt">
-          <b>Bit</b>
-          <small id="bit-act">…</small>
-        </span>
-        <span class="track"><i id="bit-energy"></i></span>
-      </button>
-      <button type="button" class="p nox" id="focus-nox" aria-label="Nox">
-        <span class="orb"></span>
-        <span class="txt">
-          <b>Nox</b>
-          <small id="nox-act">…</small>
-        </span>
-        <span class="track"><i id="nox-energy"></i></span>
-      </button>
-    </div>
-
-    <div class="tools">
-      <button type="button" class="t" data-speed="0" id="spd-0" title="Pause">∥</button>
-      <button type="button" class="t on" data-speed="1" id="spd-1" title="1x">▷</button>
-      <button type="button" class="t" data-speed="2" id="spd-2" title="2x">▷▷</button>
-      <span class="sep"></span>
-      <button type="button" class="t" id="btn-view" title="Camera">◎</button>
-      <button type="button" class="t" id="btn-call" title="Call">◉</button>
-      <button type="button" class="t" id="btn-brain" title="AI mode">✦</button>
-    </div>
-  </nav>
-
-  <!-- First visit -->
-  <div id="onboard" class="hidden">
-    <div class="sheet">
-      <p class="kicker">a little place</p>
+  <div id="gate">
+    <div class="card">
+      <p class="kicker">VR lobby</p>
       <h1>Hangout</h1>
-      <p class="blurb">Bit & Nox live here. Host a room on your Wi‑Fi and hang out together.</p>
-      <button type="button" id="enter-btn">Continue</button>
+      <p class="blurb">Walk a 3D lounge with Bit, Nox, and anyone who joins your room.</p>
+      <label>Display name
+        <input id="mp-name" maxlength="16" placeholder="You" autocomplete="nickname" />
+      </label>
+      <div class="row">
+        <button type="button" id="mp-color" title="Avatar color">◐ color</button>
+        <button type="button" id="enter-solo" class="ghost">Explore solo</button>
+      </div>
+      <div class="row">
+        <button type="button" id="mp-host" class="primary">Host room</button>
+        <input id="mp-code" maxlength="6" placeholder="CODE" spellcheck="false" />
+        <button type="button" id="mp-join">Join</button>
+      </div>
+      <p id="mp-status" class="status">Same Wi‑Fi · host, then share the code</p>
     </div>
   </div>
 
-  <!-- Multiplayer lobby -->
-  <div id="mp-panel">
-    <div class="mp-row">
-      <input id="mp-name" type="text" maxlength="16" placeholder="Your name" autocomplete="nickname" />
-      <button type="button" id="mp-color" title="Cycle color" aria-label="Color">◐</button>
-    </div>
-    <div class="mp-row">
-      <button type="button" id="mp-host" class="mp-primary">Host room</button>
-      <input id="mp-code" type="text" maxlength="6" placeholder="CODE" autocomplete="off" spellcheck="false" />
-      <button type="button" id="mp-join">Join</button>
-    </div>
-    <div id="mp-status" class="mp-status">Same Wi‑Fi · host, then share the code</div>
-    <div id="mp-room" class="mp-room hidden"></div>
-  </div>
-
-  <div id="toasts"></div>
-  <div id="status" class="sr-only" aria-live="polite"></div>
-  <div id="rel-bar" class="sr-only"></div>
-  <div id="debug" class="hidden"><pre id="dbg-body"></pre></div>
-  <div id="progress"><i></i></div>
-
-  <canvas id="vision" width="256" height="160" class="ghost"></canvas>
-  <canvas id="minimap" width="1" height="1" class="ghost"></canvas>
-
-  <script type="module" src="main.js"></script>
+  <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
+  <script type="module" src="lobby.js"></script>
 </body>
 </html>
