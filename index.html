@@ -56,9 +56,9 @@ function shortest(a, b) {
   while (d < -Math.PI) d += Math.PI * 2;
   return d;
 }
-function damp(n, ax, v, k) {
+function rot(n, x, y, z) {
   if (!n) return;
-  n.rotation[ax] += (v - n.rotation[ax]) * k;
+  n.rotation.set(x, y, z);
 }
 
 const keys = Object.create(null);
@@ -173,44 +173,33 @@ async function wear(id) {
   toast(id);
 }
 
-function bone(name) {
-  const h = vrm && vrm.humanoid; if (!h) return [];
-  return [h.getNormalizedBoneNode?.(name), h.getBoneNode?.(name)].filter(Boolean);
+function nbone(name) {
+  return vrm?.humanoid?.getNormalizedBoneNode?.(name) || null;
 }
-function setBones(name, ax, v, k) {
-  for (const n of bone(name)) damp(n, ax, v, k);
-}
-function gait(moving, run, distStep, dt) {
+function gait(moving, run, step) {
   if (!vrm) return;
-  const k = Math.min(1, dt * 12);
-  if (moving) phase += distStep * 2.6;
+  if (moving) phase += step * 2.8;
   const p = phase;
-  const swing = Math.sin(p);
-  const other = Math.sin(p + Math.PI);
-  const lift = Math.pow(Math.max(0, -Math.cos(p)), 1.4);
-  const lift2 = Math.pow(Math.max(0, -Math.cos(p + Math.PI)), 1.4);
-  const a = moving ? (run ? 0.42 : 0.28) : 0.012;
-  const hang = 1.32;
+  const s = Math.sin(p), o = Math.sin(p + Math.PI);
+  const lift = Math.max(0, -Math.cos(p));
+  const lift2 = Math.max(0, -Math.cos(p + Math.PI));
+  const a = moving ? (run ? 0.4 : 0.26) : 0.01;
   const t = clock.elapsedTime;
-  setBones("leftUpperLeg", "x", swing * a, k);
-  setBones("rightUpperLeg", "x", other * a, k);
-  setBones("leftLowerLeg", "x", lift * a * 1.05, k);
-  setBones("rightLowerLeg", "x", lift2 * a * 1.05, k);
-  setBones("leftFoot", "x", moving ? swing * 0.08 : 0.04, k);
-  setBones("rightFoot", "x", moving ? other * 0.08 : 0.04, k);
-  setBones("leftUpperArm", "z", hang + other * (moving ? 0.18 : 0.03), k);
-  setBones("rightUpperArm", "z", -hang + swing * (moving ? 0.18 : 0.03), k);
-  setBones("leftLowerArm", "x", 0.22 + (moving ? lift * 0.12 : 0), k);
-  setBones("rightLowerArm", "x", 0.22 + (moving ? lift2 * 0.12 : 0), k);
-  setBones("hips", "y", moving ? swing * 0.035 : Math.sin(t * 0.9) * 0.012, k);
-  setBones("hips", "x", moving ? (run ? 0.05 : 0.025) : 0.01, k);
-  setBones("spine", "y", moving ? other * 0.03 : 0, k);
-  setBones("spine", "x", moving ? 0.035 : Math.sin(t * 1.15) * 0.012, k);
-  setBones("chest", "x", Math.sin(t * 1.15) * 0.01 + (moving ? 0.02 : 0), k);
-  blink -= dt;
-  if (blink < -3.8) blink = 0.11;
-  const lid = blink > 0 ? Math.min(1, blink * 16) : 0;
-  vrm.expressionManager?.setValue?.("blink", lid);
+  rot(nbone("leftUpperLeg"), s * a, 0, 0);
+  rot(nbone("rightUpperLeg"), o * a, 0, 0);
+  rot(nbone("leftLowerLeg"), lift * a, 0, 0);
+  rot(nbone("rightLowerLeg"), lift2 * a, 0, 0);
+  rot(nbone("leftFoot"), moving ? s * 0.06 : 0.03, 0, 0);
+  rot(nbone("rightFoot"), moving ? o * 0.06 : 0.03, 0, 0);
+  rot(nbone("leftUpperArm"), 0, 0, 1.28 + o * (moving ? 0.16 : 0.02));
+  rot(nbone("rightUpperArm"), 0, 0, -1.28 + s * (moving ? 0.16 : 0.02));
+  rot(nbone("leftLowerArm"), 0.2, 0, 0);
+  rot(nbone("rightLowerArm"), 0.2, 0, 0);
+  rot(nbone("hips"), moving ? 0.03 : 0.01, moving ? s * 0.03 : Math.sin(t * 0.8) * 0.01, 0);
+  rot(nbone("spine"), moving ? 0.03 : Math.sin(t * 1.1) * 0.01, moving ? o * 0.025 : 0, 0);
+  blink -= 1 / 60;
+  if (blink < -4) blink = 0.1;
+  vrm.expressionManager?.setValue?.("blink", blink > 0 ? Math.min(1, blink * 16) : 0);
 }
 function loco(moving, run) {
   if (!mixer || !actor) return;
@@ -275,8 +264,8 @@ function tick() {
   }
   loco(moving, run);
   if (mixer) mixer.update(dt);
+  gait(moving, run, spd * dt);
   if (vrm) vrm.update(dt);
-  gait(moving, run, spd * dt, dt);
 
   const lookY = 1.42;
   const shoulder = 0.38;
