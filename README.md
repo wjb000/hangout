@@ -1,6 +1,7 @@
-# Hangout — VR lobby
+# Hangout
 
-A first-person 3D lounge. Bit and Nox wander the room. Friends on the same Wi‑Fi can host/join and walk around as avatars.
+A small third-person 3D hangout in the browser. Run around a black-and-blue arena, climb the platforms,
+grab every blue spark against the clock, and emote with the wandering robots Bit and Nox.
 
 **Live:** https://wjb000.github.io/hangout/
 
@@ -8,16 +9,16 @@ A first-person 3D lounge. Bit and Nox wander the room. Friends on the same Wi‑
 
 | | |
 |--|--|
-| Click | Capture mouse look |
-| WASD / arrows | Walk |
-| Shift | Sprint |
+| WASD / arrows | Move (camera-relative) |
+| Shift | Run |
 | Space | Jump |
-| T | Chat |
-| Esc | Release mouse |
+| Drag | Look around |
+| Scroll | Zoom |
+| Q / E | Turn camera |
+| 1-4 | Wave, dance, thumbs up, nod |
 
-## Multiplayer
+On phones: left thumb is a joystick, right thumb looks around, and there is a Jump button.
 
-1. Open the site on two devices on the same Wi‑Fi.
-2. One person **Host room** and share the code.
-3. Others **Join**.
-4. Avatars, names, and chat sync over WebRTC (PeerJS).
+Pick an avatar in the top-left: the Robot loads instantly. Aya, Haru, and Ren are VRoid VRM models (about 15 MB each) and show load progress.
+
+Everything runs from `index.html` (three.js from a CDN). No build step.

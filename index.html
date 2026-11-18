@@ -2,19 +2,43 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
 <title>Hangout</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='6' fill='%23007FFF'/%3E%3C/svg%3E" />
 <style>
-html,body{margin:0;height:100%;overflow:hidden;background:#08060c;color:#f4efe8;font-family:ui-sans-serif,system-ui,sans-serif}
-canvas{display:block;width:100%;height:100%}
+:root{--blue:#007FFF;--ink:#e9f2ff;--dim:rgba(233,242,255,.55);--glass:rgba(0,0,0,.62);--line:rgba(0,127,255,.35)}
+html,body{margin:0;height:100%;overflow:hidden;background:#000;color:var(--ink);font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}
+canvas{display:block;width:100%;height:100%;touch-action:none}
 #ui{position:fixed;inset:0;pointer-events:none}
-#ui button{pointer-events:auto;border:1px solid rgba(255,255,255,.14);background:rgba(12,8,18,.72);color:#fff;backdrop-filter:blur(14px);border-radius:999px;padding:7px 13px;cursor:pointer;font:12px inherit}
-#top{position:absolute;top:16px;left:18px;display:flex;gap:10px;align-items:center}
-.brand{letter-spacing:.32em;font-size:11px;text-transform:uppercase;opacity:.5;pointer-events:none}
-#cast{position:absolute;bottom:18px;left:50%;transform:translateX(-50%);display:flex;gap:8px}
-#hint{position:absolute;bottom:66px;width:100%;text-align:center;font-size:12px;color:rgba(244,239,232,.5);pointer-events:none}
-#toast{position:absolute;top:16px;left:50%;transform:translateX(-50%);background:rgba(12,8,18,.75);padding:8px 14px;border-radius:999px;opacity:0;transition:opacity .2s;pointer-events:none}
+#ui button{pointer-events:auto;border:1px solid var(--line);background:var(--glass);color:var(--ink);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-radius:999px;padding:7px 13px;cursor:pointer;font:600 12px/1 inherit;letter-spacing:.02em}
+#ui button:hover{border-color:var(--blue)}
+#ui button.on{background:var(--blue);border-color:var(--blue);color:#fff}
+#ui button kbd{font:inherit;opacity:.55;margin-left:6px}
+#top{position:absolute;top:14px;left:16px;display:flex;flex-direction:column;gap:8px;align-items:flex-start}
+.row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.brand{letter-spacing:.34em;font-size:11px;font-weight:700;text-transform:uppercase;color:var(--blue);margin-right:6px}
+#score{position:absolute;top:14px;right:16px;text-align:right;background:var(--glass);border:1px solid var(--line);border-radius:14px;padding:10px 14px;min-width:120px;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
+#score .lbl{font-size:10px;letter-spacing:.28em;color:var(--blue);font-weight:700}
+#score .big{font-size:26px;font-weight:700;font-variant-numeric:tabular-nums;margin:2px 0}
+#score .sub{font-size:11px;color:var(--dim);font-variant-numeric:tabular-nums}
+#emotes{position:absolute;bottom:18px;left:50%;transform:translateX(-50%);display:flex;gap:6px}
+#hint{position:absolute;bottom:62px;width:100%;text-align:center;font-size:12px;color:var(--dim);transition:opacity 1s}
+#hint b{color:var(--blue);font-weight:600}
+#hint.off{opacity:0}
+#toast{position:absolute;top:70px;left:50%;transform:translateX(-50%);background:var(--glass);border:1px solid var(--line);padding:9px 16px;border-radius:999px;opacity:0;transition:opacity .25s;font-size:13px;white-space:nowrap}
 #toast.on{opacity:1}
+#load{position:absolute;top:16px;left:50%;transform:translateX(-50%);font-size:11px;color:var(--dim);letter-spacing:.06em}
+.tag{position:absolute;transform:translate(-50%,-100%);font-size:12px;font-weight:600;color:#fff;text-shadow:0 1px 4px #000,0 0 8px #000;white-space:nowrap;text-align:center}
+.tag i[hidden]{display:none}
+.tag i{display:block;font-style:normal;font-weight:500;font-size:12px;background:rgba(0,0,0,.75);border:1px solid var(--line);border-radius:10px;padding:5px 9px;margin-bottom:4px;text-shadow:none}
+#jump,#stick{display:none}
+body.touch #jump{display:block;position:absolute;right:22px;bottom:30px;width:74px;height:74px;border-radius:50%;font-size:13px}
+body.touch #emotes{left:auto;right:16px;bottom:118px;transform:none;flex-direction:column;align-items:flex-end}
+body.touch #emotes kbd{display:none}
+body.touch #hint{bottom:auto;top:96px}
+#stick{position:absolute;width:110px;height:110px;margin:-55px 0 0 -55px;border-radius:50%;border:1px solid var(--line);background:rgba(0,127,255,.08)}
+#stick i{position:absolute;left:50%;top:50%;width:46px;height:46px;margin:-23px 0 0 -23px;border-radius:50%;background:rgba(0,127,255,.55);box-shadow:0 0 18px rgba(0,127,255,.6)}
+#stick.on{display:block}
 </style>
 <script type="importmap">{
   "imports": {
@@ -26,24 +50,48 @@ canvas{display:block;width:100%;height:100%}
 </head>
 <body>
 <div id="ui">
-  <div id="top"><div class="brand">hangout</div><button id="who" type="button">you</button></div>
-  <div id="toast"></div>
-  <div id="hint">hold drag to look · WASD walk · shift run · scroll zoom</div>
-  <div id="cast">
-    <button data-id="aya">Aya</button>
-    <button data-id="haru">Haru</button>
-    <button data-id="ren">Ren</button>
-    <button data-id="robot">Robot</button>
+  <div id="top">
+    <div class="row"><div class="brand">Hangout</div><button id="who" type="button" title="Change your name">you</button></div>
+    <div class="row" id="cast">
+      <button data-id="robot" class="on">Robot</button>
+      <button data-id="aya">Aya</button>
+      <button data-id="haru">Haru</button>
+      <button data-id="ren">Ren</button>
+    </div>
   </div>
+  <div id="load"></div>
+  <div id="score"><div class="lbl">SPARKS</div><div class="big"><span id="got">0</span>/<span id="tot">0</span></div><div class="sub"><span id="time">0.0s</span> · best <span id="best">--</span></div></div>
+  <div id="toast"></div>
+  <div id="tags"></div>
+  <div id="hint"></div>
+  <div id="emotes">
+    <button data-emote="Wave">Wave<kbd>1</kbd></button>
+    <button data-emote="Dance">Dance<kbd>2</kbd></button>
+    <button data-emote="ThumbsUp">Thumbs up<kbd>3</kbd></button>
+    <button data-emote="Yes">Nod<kbd>4</kbd></button>
+  </div>
+  <button id="jump" type="button">Jump</button>
+  <div id="stick"><i></i></div>
 </div>
 <script type="module">
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { FBXLoader } from "three/addons/loaders/FBXLoader.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
+import { clone as skClone } from "three/addons/utils/SkeletonUtils.js";
 
-/* Retarget from pixiv/three-vrm humanoidAnimation example.
-   Clips from readyplayerme/animation-library (Mixamo). */
+const BLUE = 0x007fff;
+const ROBOT_URL = "https://cdn.jsdelivr.net/gh/mrdoob/three.js@r160/examples/models/gltf/RobotExpressive/RobotExpressive.glb";
+const CAST = {
+  robot: { name: "Robot" },
+  aya:  { name: "Aya",  url: "https://cdn.jsdelivr.net/gh/madjin/vrm-samples@master/vroid/stable/AvatarSample_A.vrm" },
+  haru: { name: "Haru", url: "https://cdn.jsdelivr.net/gh/madjin/vrm-samples@master/vroid/stable/AvatarSample_B.vrm" },
+  ren:  { name: "Ren",  url: "https://cdn.jsdelivr.net/gh/madjin/vrm-samples@master/vroid/stable/AvatarSample_C.vrm" },
+};
+/* Mixamo clips from readyplayerme/animation-library. The repo stores them in Git LFS, so they must be
+   fetched from media.githubusercontent.com (jsDelivr only serves the 130-byte LFS pointer files). */
+const RPM = "https://media.githubusercontent.com/media/readyplayerme/animation-library/master/feminine/fbx/";
+const MOTION = { idle: RPM + "idle/F_Standing_Idle_001.fbx", walk: RPM + "locomotion/F_Walk_002.fbx", run: RPM + "locomotion/F_Run_001.fbx" };
 const MIXAMO = {
   mixamorigHips:"hips", mixamorigSpine:"spine", mixamorigSpine1:"chest", mixamorigSpine2:"upperChest",
   mixamorigNeck:"neck", mixamorigHead:"head",
@@ -52,275 +100,569 @@ const MIXAMO = {
   mixamorigLeftUpLeg:"leftUpperLeg", mixamorigLeftLeg:"leftLowerLeg", mixamorigLeftFoot:"leftFoot", mixamorigLeftToeBase:"leftToes",
   mixamorigRightUpLeg:"rightUpperLeg", mixamorigRightLeg:"rightLowerLeg", mixamorigRightFoot:"rightFoot", mixamorigRightToeBase:"rightToes",
 };
-const MOTION = {
-  idle: "https://cdn.jsdelivr.net/gh/readyplayerme/animation-library@master/feminine/fbx/idle/F_Standing_Idle_001.fbx",
-  walk: "https://cdn.jsdelivr.net/gh/readyplayerme/animation-library@master/feminine/fbx/locomotion/F_Walk_002.fbx",
-  run:  "https://cdn.jsdelivr.net/gh/readyplayerme/animation-library@master/feminine/fbx/locomotion/F_Run_001.fbx",
-};
-const CAST = {
-  aya:  { vrm: true, url: "https://cdn.jsdelivr.net/gh/madjin/vrm-samples@master/vroid/stable/AvatarSample_A.vrm" },
-  haru: { vrm: true, url: "https://cdn.jsdelivr.net/gh/madjin/vrm-samples@master/vroid/stable/AvatarSample_B.vrm" },
-  ren:  { vrm: true, url: "https://cdn.jsdelivr.net/gh/madjin/vrm-samples@master/vroid/stable/AvatarSample_C.vrm" },
-  robot:{ vrm: false, url: "https://cdn.jsdelivr.net/gh/mrdoob/three.js@r160/examples/models/gltf/RobotExpressive/RobotExpressive.glb" },
-};
 
-const toastEl = document.getElementById("toast");
-function toast(t){ toastEl.textContent = t; toastEl.classList.add("on"); clearTimeout(toast._t); toast._t = setTimeout(() => toastEl.classList.remove("on"), 1800); }
-function shortest(a, b) {
-  let d = b - a;
-  while (d > Math.PI) d -= Math.PI * 2;
-  while (d < -Math.PI) d += Math.PI * 2;
-  return d;
-}
+/* ---------- helpers ---------- */
+const $ = (id) => document.getElementById(id);
+const clamp = THREE.MathUtils.clamp;
+const toastEl = $("toast");
+function toast(t, ms = 2200) { toastEl.textContent = t; toastEl.classList.add("on"); clearTimeout(toast._t); toast._t = setTimeout(() => toastEl.classList.remove("on"), ms); }
+function shortest(a, b) { let d = b - a; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; return d; }
 function rot(n, x, y, z) { if (n) n.rotation.set(x, y, z); }
+const touchMode = matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
+if (touchMode) document.body.classList.add("touch");
+$("hint").innerHTML = touchMode
+  ? "Left thumb <b>move</b> · right thumb <b>look</b> · grab every <b>blue spark</b>"
+  : "<b>WASD</b> move · <b>Shift</b> run · <b>Space</b> jump · <b>drag</b> look · <b>scroll</b> zoom · <b>1-4</b> emotes · grab every <b>blue spark</b>";
+setTimeout(() => $("hint").classList.add("off"), 14000);
 
-const keys = Object.create(null);
-let yaw = 0.2, pitch = 0.18, dist = 3.6;
-let x = 0, z = 3.2, facing = Math.PI, shown = Math.PI, dragging = false;
-let vx = 0, vz = 0, phase = 0, blink = 0, hasClips = false;
-let actor = null, mixer = null, vrm = null, vrmMod = null, faceOff = 0;
-const cam = { x: 0, y: 2, z: 6 };
-// Invisible boundary, well inside the ground edge, so nobody can walk off into the void.
-const ROOM = { minX: -55, maxX: 55, minZ: -55, maxZ: 55 };
+/* ---------- audio (tiny synth blips, unlocked on first input) ---------- */
+let actx = null;
+function unlockAudio() { if (!actx) { try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch {} } actx?.resume?.(); }
+function blip(freq, dur = 0.12, type = "sine", vol = 0.08) {
+  if (!actx || actx.state !== "running") return;
+  const o = actx.createOscillator(), g = actx.createGain(), t = actx.currentTime;
+  o.type = type; o.frequency.setValueAtTime(freq, t); o.frequency.exponentialRampToValueAtTime(freq * 1.5, t + dur);
+  g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g).connect(actx.destination); o.start(t); o.stop(t + dur);
+}
 
+/* ---------- renderer / scene ---------- */
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x09070f);
-scene.fog = new THREE.Fog(0x09070f, 16, 28);
-const camera = new THREE.PerspectiveCamera(58, innerWidth / innerHeight, 0.08, 80);
+scene.background = new THREE.Color(0x000000);
+scene.fog = new THREE.Fog(0x000000, 22, 62);
+const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 120);
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(innerWidth, innerHeight);
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.05;
+renderer.toneMappingExposure = 1.1;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
-document.body.appendChild(renderer.domElement);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.prepend(renderer.domElement);
 const pmrem = new THREE.PMREMGenerator(renderer);
-scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.06).texture;
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
 
-function mat(c, extra = {}) {
-  return new THREE.MeshStandardMaterial({ color: c, roughness: 0.62, metalness: 0.08, ...extra });
+scene.add(new THREE.HemisphereLight(0xbfdcff, 0x050a14, 0.7));
+const sun = new THREE.DirectionalLight(0xffffff, 1.7);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { left: -18, right: 18, top: 18, bottom: -18, near: 1, far: 60 });
+sun.shadow.bias = -0.0005;
+scene.add(sun, sun.target);
+const rim = new THREE.DirectionalLight(BLUE, 1.2); rim.position.set(-6, 4, -8); scene.add(rim);
+
+const LIMIT = 48; // walkable radius
+// Ground: near-black floor with a blue grid and a glowing boundary ring.
+const ground = new THREE.Mesh(new THREE.CircleGeometry(160, 64), new THREE.MeshStandardMaterial({ color: 0x07090d, roughness: 0.85, metalness: 0.1 }));
+ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
+const grid = new THREE.GridHelper(200, 100, BLUE, 0x0a2a55);
+grid.position.y = 0.005; grid.material.transparent = true; grid.material.opacity = 0.55; scene.add(grid);
+const ring = new THREE.Mesh(new THREE.TorusGeometry(LIMIT + 0.6, 0.08, 8, 160), new THREE.MeshBasicMaterial({ color: BLUE }));
+ring.rotation.x = Math.PI / 2; ring.position.y = 0.05; scene.add(ring);
+const pad = new THREE.Mesh(new THREE.RingGeometry(2.2, 2.45, 64), new THREE.MeshBasicMaterial({ color: BLUE, transparent: true, opacity: 0.8 }));
+pad.rotation.x = -Math.PI / 2; pad.position.y = 0.01; scene.add(pad);
+
+// Platforms: axis-aligned blocks you can bump into and jump onto. Max single step ~1.2 m.
+const BLOCKS = [];
+const blockMat = new THREE.MeshStandardMaterial({ color: 0x10151d, roughness: 0.55, metalness: 0.3 });
+const edgeMat = new THREE.LineBasicMaterial({ color: BLUE });
+function block(x, z, w, d, h) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), blockMat);
+  m.position.set(x, h / 2, z); m.castShadow = m.receiveShadow = true; scene.add(m);
+  const e = new THREE.LineSegments(new THREE.EdgesGeometry(m.geometry), edgeMat); m.add(e);
+  BLOCKS.push({ x, z, hw: w / 2, hd: d / 2, h });
 }
-function box(w, h, d, c, px, py, pz, extra) {
-  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat(c, extra));
-  m.position.set(px, py, pz); scene.add(m); return m;
+// a stair tower north
+block(0, -12, 3, 3, 0.9); block(3.2, -13.5, 3, 3, 1.9); block(6.2, -15.2, 3, 3, 2.9); block(9.4, -16.5, 3.5, 3.5, 3.9);
+// stepping stones east
+block(12, 2, 2.2, 2.2, 0.7); block(15, 4, 2.2, 2.2, 1.6); block(18, 6.5, 2.2, 2.2, 2.4); block(21.5, 9, 3, 3, 3.2);
+// low walls and a pedestal west / south
+block(-12, 0, 1.2, 10, 1.1); block(-16, -6, 8, 1.2, 1.1); block(-20, 6, 4, 4, 1.0); block(-23.5, 9.5, 3, 3, 2.0);
+block(-6, 16, 5, 2, 0.8); block(-2, 21, 3, 3, 1.8); block(8, 22, 6, 6, 0.6);
+block(-14, -20, 2.5, 2.5, 1.2); block(-17, -23, 2.5, 2.5, 2.3); block(25, -10, 4, 4, 1.0);
+// decorative glowing pylons on the horizon
+for (let i = 0; i < 18; i++) {
+  const a = (i / 18) * Math.PI * 2, r = LIMIT + 4;
+  const p = new THREE.Mesh(new THREE.BoxGeometry(0.5, 6 + (i % 3) * 3, 0.5), new THREE.MeshBasicMaterial({ color: i % 2 ? BLUE : 0x0b3f80 }));
+  p.position.set(Math.cos(a) * r, p.geometry.parameters.height / 2, Math.sin(a) * r); scene.add(p);
 }
 
-// Open world: just a plain gray ground. It extends well past the walk limit; the fog hides its edge.
-box(120, 0.08, 120, 0x808080, 0, 0, 0, { roughness: 0.9, metalness: 0 });
-
-// Simple lighting: sky/ground fill plus one directional light.
-scene.add(new THREE.HemisphereLight(0xffffff, 0x666666, 0.45));
-const sun = new THREE.DirectionalLight(0xffffff, 0.8); sun.position.set(4, 8, 5); scene.add(sun);
-
-function dummy() {
-  const g = new THREE.Group();
-  const skin = mat(0xffd0c2);
-  const shirt = mat(0x67e8ff, { emissive: 0x1a6070, emissiveIntensity: 0.2 });
-  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.26, 0.7, 5, 10), shirt); body.position.y = 1.05;
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.2, 16, 12), skin); head.position.y = 1.62;
-  const hair = new THREE.Mesh(new THREE.SphereGeometry(0.22, 16, 10), mat(0x2a1020)); hair.position.y = 1.7;
-  g.add(body, head, hair); return g;
-}
-function setActor(mesh, clips, vr) {
-  if (actor) scene.remove(actor);
-  const rig = new THREE.Group();
-  rig.add(mesh);
-  actor = rig; scene.add(actor);
-  vrm = vr || null;
-  faceOff = vr ? Math.PI : 0;
-  hasClips = false;
-  if (vrm?.lookAt) vrm.lookAt.target = camera;
-  mixer = clips && clips.length ? new THREE.AnimationMixer(mesh) : null;
-  rig.userData.idle = rig.userData.walk = rig.userData.run = null;
-  if (mixer) {
-    const idle = clips.find((c) => /idle/i.test(c.name)) || clips[0];
-    mixer.clipAction(idle).play();
-    rig.userData.idle = mixer.clipAction(idle);
-    const w = clips.find((c) => /walk/i.test(c.name));
-    const r = clips.find((c) => /run/i.test(c.name));
-    rig.userData.walk = w ? mixer.clipAction(w) : null;
-    rig.userData.run = r ? mixer.clipAction(r) : null;
-    hasClips = !!(rig.userData.walk && !vr);
+/* ---------- collision ---------- */
+const RAD = 0.35;
+// Pushes (pos.x, pos.z) out of blocks the body is beside; returns the floor height under the body.
+function collide(pos, y) {
+  let floor = 0;
+  for (const b of BLOCKS) {
+    const cx = clamp(pos.x, b.x - b.hw, b.x + b.hw), cz = clamp(pos.z, b.z - b.hd, b.z + b.hd);
+    const dx = pos.x - cx, dz = pos.z - cz, d2 = dx * dx + dz * dz;
+    if (d2 >= RAD * RAD) continue;
+    if (y >= b.h - 0.35) { // above (or stepping onto) the top
+      if (Math.abs(pos.x - b.x) <= b.hw + 0.12 && Math.abs(pos.z - b.z) <= b.hd + 0.12) floor = Math.max(floor, b.h);
+      continue;
+    }
+    if (d2 > 1e-8) { const d = Math.sqrt(d2); pos.x = cx + (dx / d) * RAD; pos.z = cz + (dz / d) * RAD; }
+    else { // centre inside: push out the nearest face
+      const px = b.hw - Math.abs(pos.x - b.x), pz = b.hd - Math.abs(pos.z - b.z);
+      if (px < pz) pos.x = b.x + Math.sign(pos.x - b.x || 1) * (b.hw + RAD); else pos.z = b.z + Math.sign(pos.z - b.z || 1) * (b.hd + RAD);
+    }
   }
+  const r = Math.hypot(pos.x, pos.z);
+  if (r > LIMIT) { pos.x *= LIMIT / r; pos.z *= LIMIT / r; }
+  return floor;
 }
-setActor(dummy(), []);
 
+/* ---------- characters ---------- */
+const gltfLoader = new GLTFLoader();
+let robotGltf = null;
+const robotReady = gltfLoader.loadAsync(ROBOT_URL).then((g) => (robotGltf = g));
+
+class RobotAnim {
+  constructor(root, clips) {
+    this.mixer = new THREE.AnimationMixer(root);
+    this.a = {}; for (const c of clips) this.a[c.name] = this.mixer.clipAction(c);
+    for (const n of ["Jump", "Wave", "Yes", "No", "ThumbsUp", "Punch", "Dance"]) {
+      const x = this.a[n]; if (!x) continue;
+      x.setLoop(THREE.LoopRepeat, n === "Dance" ? 2 : 1); x.clampWhenFinished = true;
+    }
+    if (this.a.Jump) this.a.Jump.timeScale = 1.5;
+    this.base = null; this.emote = null;
+    this.mixer.addEventListener("finished", (e) => { if (e.action === this.emote) this.stop(); });
+    this.setBase("Idle");
+  }
+  setBase(n, scale = 1) {
+    const next = this.a[n]; if (!next) return;
+    next.timeScale = scale;
+    if (next === this.base) return;
+    const prev = this.base; this.base = next;
+    if (this.emote) { prev?.stop(); return; }
+    next.reset().fadeIn(0.25).play(); prev?.fadeOut(0.25);
+  }
+  play(n) {
+    const e = this.a[n]; if (!e) return false;
+    if (this.emote && this.emote !== e) this.emote.fadeOut(0.15);
+    this.base?.fadeOut(0.2); e.reset().fadeIn(0.2).play(); this.emote = e; return true;
+  }
+  stop() { if (!this.emote) return; this.emote.fadeOut(0.25); this.emote = null; this.base?.reset().fadeIn(0.25).play(); }
+  update(dt) { this.mixer.update(dt); }
+}
+
+function makeRobot(tint) {
+  const root = skClone(robotGltf.scene);
+  root.traverse((o) => {
+    if (!o.isMesh) return;
+    o.castShadow = true; o.frustumCulled = false;
+    if (tint && o.material?.name === "Main") { o.material = o.material.clone(); o.material.color.set(tint); }
+  });
+  // Skinned bounds are only right once bone matrices are current.
+  root.updateMatrixWorld(true);
+  root.traverse((o) => o.isSkinnedMesh && o.skeleton.update());
+  const box = new THREE.Box3().setFromObject(root);
+  const s = 1.7 / (box.max.y - box.min.y);
+  root.scale.setScalar(s); root.position.y = -box.min.y * s;
+  const holder = new THREE.Group(); holder.add(root);
+  return { obj: holder, anim: new RobotAnim(root, robotGltf.animations), height: 1.75 };
+}
+
+/* ---------- VRM avatars (procedural gait, optional Mixamo clips) ---------- */
+let vrmMod = null;
 const fbx = new FBXLoader();
-const _qA = new THREE.Quaternion();
-const restInv = new THREE.Quaternion();
-const parentRest = new THREE.Quaternion();
+const _q = new THREE.Quaternion(), restInv = new THREE.Quaternion(), parentRest = new THREE.Quaternion();
+const fbxCache = {};
+function loadFbx(url) { return (fbxCache[url] ||= fbx.loadAsync(url)); }
 async function mixamoClip(url, vr) {
-  const asset = await fbx.loadAsync(url);
+  const asset = await loadFbx(url);
   const clip = THREE.AnimationClip.findByName(asset.animations, "mixamo.com") || asset.animations[0];
   if (!clip) return null;
-  const tracks = [];
-  const v0 = vr.meta?.metaVersion === "0";
+  const tracks = [], v0 = vr.meta?.metaVersion === "0";
   for (const track of clip.tracks) {
-    const parts = track.name.split(".");
-    const prop = parts.pop();
+    const parts = track.name.split("."), prop = parts.pop();
     const rigName = parts.join(".").split("|").pop();
     const human = MIXAMO[rigName];
     const node = human && vr.humanoid.getNormalizedBoneNode(human);
     const src = asset.getObjectByName(rigName);
     if (!node || !src || prop !== "quaternion") continue;
-    if (src.parent) {
-      src.getWorldQuaternion(restInv).invert();
-      src.parent.getWorldQuaternion(parentRest);
-    }
+    src.getWorldQuaternion(restInv).invert();
+    src.parent.getWorldQuaternion(parentRest);
     const values = track.values.slice();
     for (let i = 0; i < values.length; i += 4) {
-      _qA.set(values[i], values[i + 1], values[i + 2], values[i + 3]);
-      if (src.parent) _qA.premultiply(parentRest).multiply(restInv);
-      values[i] = _qA.x; values[i + 1] = _qA.y; values[i + 2] = _qA.z; values[i + 3] = _qA.w;
+      _q.fromArray(values, i).premultiply(parentRest).multiply(restInv).toArray(values, i);
     }
-    if (v0) for (let i = 0; i < values.length; i++) if (i % 2 === 0) values[i] = -values[i];
+    if (v0) for (let i = 0; i < values.length; i += 2) values[i] = -values[i];
     tracks.push(new THREE.QuaternionKeyframeTrack(node.name + ".quaternion", track.times, values));
   }
   return tracks.length >= 8 ? new THREE.AnimationClip(url.split("/").pop(), clip.duration, tracks) : null;
 }
-async function dressMotion(vr, rig) {
-  toast("loading motion");
-  try {
-    const [idle, walk, run] = await Promise.all([
-      mixamoClip(MOTION.idle, vr).catch(() => null),
-      mixamoClip(MOTION.walk, vr).catch(() => null),
-      mixamoClip(MOTION.run, vr).catch(() => null),
-    ]);
-    mixer = new THREE.AnimationMixer(vr.scene);
-    if (idle) rig.userData.idle = mixer.clipAction(idle);
-    if (walk) rig.userData.walk = mixer.clipAction(walk);
-    if (run) rig.userData.run = mixer.clipAction(run);
-    if (rig.userData.idle) rig.userData.idle.play();
-    hasClips = !!(rig.userData.walk && rig.userData.idle);
-    toast(hasClips ? "clips on" : "using fallback walk");
-  } catch (e) {
-    hasClips = false;
-    toast("using fallback walk");
+
+class VrmAnim {
+  constructor(vrm) {
+    this.vrm = vrm; this.phase = 0; this.blink = 0; this.t = 0; this.emote = null; this.emoteT = 0;
+    this.mixer = null; this.clips = null; this.cur = null;
+  }
+  bone(n) { return this.vrm.humanoid.getNormalizedBoneNode(n); }
+  attachClips(c) {
+    this.mixer = new THREE.AnimationMixer(this.vrm.scene);
+    this.clips = { idle: this.mixer.clipAction(c.idle), walk: this.mixer.clipAction(c.walk), run: c.run ? this.mixer.clipAction(c.run) : null };
+    this.cur = this.clips.idle; this.cur.play();
+  }
+  play(n) { this.emote = n; this.emoteT = n === "Dance" ? 3.2 : 1.6; return true; }
+  stop() { this.emote = null; }
+  drive(speed, run, air, dt) {
+    this.t += dt;
+    if (this.mixer && !this.emote) {
+      const want = speed > 0.3 ? (run && this.clips.run ? this.clips.run : this.clips.walk) : this.clips.idle;
+      if (want !== this.cur) { this.cur.fadeOut(0.25); want.reset().fadeIn(0.25).play(); this.cur = want; }
+      if (want === this.clips.walk) want.timeScale = clamp(speed / 1.5, 0.6, 1.6);
+      this.mixer.update(dt);
+    } else this.gait(speed, run, air, dt);
+    if (this.emote) {
+      this.emoteT -= dt; if (this.emoteT <= 0) this.emote = null; else this.gesture(this.emote);
+    }
+    this.blink -= dt; if (this.blink < -4) this.blink = 0.12;
+    this.vrm.expressionManager?.setValue?.("blink", this.blink > 0 ? Math.min(1, this.blink * 16) : 0);
+    this.vrm.expressionManager?.setValue?.("happy", this.emote ? 0.8 : 0);
+    this.vrm.update(dt);
+  }
+  gait(speed, run, air, dt) {
+    const moving = speed > 0.3;
+    if (moving) this.phase += speed * dt * 2.8;
+    const p = this.phase, s = Math.sin(p), o = Math.sin(p + Math.PI);
+    const a = air ? 0 : moving ? (run ? 0.42 : 0.28) : 0.01;
+    const B = (n) => this.bone(n), t = this.t;
+    rot(B("leftUpperLeg"), air ? -0.5 : s * a, 0, 0);
+    rot(B("rightUpperLeg"), air ? -0.2 : o * a, 0, 0);
+    rot(B("leftLowerLeg"), air ? 0.8 : Math.max(0, -Math.cos(p)) * a * 1.4, 0, 0);
+    rot(B("rightLowerLeg"), air ? 0.4 : Math.max(0, Math.cos(p)) * a * 1.4, 0, 0);
+    rot(B("leftUpperArm"), 0, 0, 1.25 + o * (moving ? 0.18 : 0.02) - (air ? 0.6 : 0));
+    rot(B("rightUpperArm"), 0, 0, -1.25 + s * (moving ? 0.18 : 0.02) + (air ? 0.6 : 0));
+    rot(B("leftLowerArm"), 0, 0, 0.15); rot(B("rightLowerArm"), 0, 0, -0.15);
+    rot(B("hips"), 0, moving ? s * 0.05 : Math.sin(t * 0.8) * 0.02, 0);
+    rot(B("spine"), moving ? 0.05 : Math.sin(t * 1.3) * 0.015, moving ? o * 0.04 : 0, 0);
+    rot(B("head"), 0, 0, 0);
+  }
+  gesture(n) {
+    const t = this.t, B = (x) => this.bone(x);
+    if (n === "Wave") { rot(B("rightUpperArm"), 0, 0, 1.15); rot(B("rightLowerArm"), 0, 0, 0.5 + Math.sin(t * 12) * 0.45); }
+    else if (n === "ThumbsUp") { rot(B("rightUpperArm"), 0, -0.9, -0.2); rot(B("rightLowerArm"), 0, -1.6, 0); }
+    else if (n === "Yes") { rot(B("head"), Math.max(0, Math.sin(t * 9)) * 0.35, 0, 0); }
+    else if (n === "Dance") {
+      rot(B("leftUpperArm"), 0, 0, -0.9 + Math.sin(t * 8) * 0.4); rot(B("rightUpperArm"), 0, 0, 0.9 + Math.sin(t * 8) * 0.4);
+      rot(B("hips"), 0, Math.sin(t * 4) * 0.35, Math.sin(t * 8) * 0.08); rot(B("head"), 0, 0, Math.sin(t * 8) * 0.15);
+    }
   }
 }
 
-const loader = new GLTFLoader();
-async function wear(id) {
-  const spec = CAST[id]; if (!spec) return;
-  toast("loading " + id);
-  if (spec.vrm && !vrmMod) {
+async function makeVrm(spec, onProgress) {
+  if (!vrmMod) {
     vrmMod = await import("@pixiv/three-vrm");
-    loader.register((p) => new vrmMod.VRMLoaderPlugin(p));
+    gltfLoader.register((p) => new vrmMod.VRMLoaderPlugin(p));
   }
-  const gltf = await loader.loadAsync(spec.url);
-  const vr = gltf.userData && gltf.userData.vrm;
-  const root = vr ? vr.scene : gltf.scene;
-  root.traverse((o) => { if (o.isMesh) o.frustumCulled = false; });
-  setActor(root, gltf.animations || [], vr);
-  if (vr) await dressMotion(vr, actor);
-  toast(id);
+  const gltf = await gltfLoader.loadAsync(spec.url, (e) => e.total && onProgress(e.loaded / e.total));
+  const vrm = gltf.userData.vrm;
+  if (!vrm) throw new Error("not a VRM");
+  vrm.scene.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.frustumCulled = false; } });
+  // VRM 0.x models face -Z; turn them to +Z like the robot.
+  if (vrm.meta?.metaVersion === "0") vrm.scene.rotation.y = Math.PI;
+  const holder = new THREE.Group(); holder.add(vrm.scene);
+  return { obj: holder, anim: new VrmAnim(vrm), height: 1.65, vrm };
 }
 
-function nbone(name) { return vrm?.humanoid?.getNormalizedBoneNode?.(name) || null; }
-function gait(moving, run, step) {
-  if (!vrm || hasClips) return;
-  if (moving) phase += step * 2.8;
-  const p = phase;
-  const s = Math.sin(p), o = Math.sin(p + Math.PI);
-  const lift = Math.max(0, -Math.cos(p));
-  const lift2 = Math.max(0, -Math.cos(p + Math.PI));
-  const a = moving ? (run ? 0.4 : 0.26) : 0.01;
-  const t = clock.elapsedTime;
-  rot(nbone("leftUpperLeg"), s * a, 0, 0);
-  rot(nbone("rightUpperLeg"), o * a, 0, 0);
-  rot(nbone("leftLowerLeg"), lift * a, 0, 0);
-  rot(nbone("rightLowerLeg"), lift2 * a, 0, 0);
-  rot(nbone("leftFoot"), moving ? s * 0.06 : 0.03, 0, 0);
-  rot(nbone("rightFoot"), moving ? o * 0.06 : 0.03, 0, 0);
-  rot(nbone("leftUpperArm"), 0, 0, 1.28 + o * (moving ? 0.16 : 0.02));
-  rot(nbone("rightUpperArm"), 0, 0, -1.28 + s * (moving ? 0.16 : 0.02));
-  rot(nbone("leftLowerArm"), 0.2, 0, 0);
-  rot(nbone("rightLowerArm"), 0.2, 0, 0);
-  rot(nbone("hips"), moving ? 0.03 : 0.01, moving ? s * 0.03 : Math.sin(t * 0.8) * 0.01, 0);
-  rot(nbone("spine"), moving ? 0.03 : Math.sin(t * 1.1) * 0.01, moving ? o * 0.025 : 0, 0);
-  blink -= 1 / 60;
-  if (blink < -4) blink = 0.1;
-  vrm.expressionManager?.setValue?.("blink", blink > 0 ? Math.min(1, blink * 16) : 0);
+/* ---------- entities ---------- */
+const tagsEl = $("tags");
+function makeTag(name) { const d = document.createElement("div"); d.className = "tag"; d.innerHTML = "<i hidden></i><span></span>"; d.querySelector("span").textContent = name; tagsEl.appendChild(d); return d; }
+function say(ent, text, secs = 3) { const i = ent.tag.querySelector("i"); i.textContent = text; i.hidden = false; ent.sayT = secs; }
+
+let myName = (localStorage.getItem("hangout_name") || "you").slice(0, 16);
+$("who").textContent = myName;
+const P = { x: 0, y: 0, z: 0, vx: 0, vz: 0, vy: 0, grounded: true, coyote: 0, facing: Math.PI, shown: Math.PI, body: null, tag: makeTag(myName), sayT: 0 };
+const NPCS = [
+  { name: "Bit", tint: 0xe8eef6, x: 5, z: -4, lines: ["hey!", "nice moves", "find the sparks?", "the tower has one on top"] },
+  { name: "Nox", tint: 0xff7a2f, x: -6, z: 5, lines: ["yo", "race you to the tower", "I lost count of the sparks", "try the stepping stones"] },
+];
+
+function setBody(ent, body) {
+  if (ent.body) scene.remove(ent.body.obj);
+  ent.body = body; scene.add(body.obj);
 }
-function loco(moving, run) {
-  if (!mixer || !actor) return;
-  const want = moving ? (run && actor.userData.run ? actor.userData.run : actor.userData.walk || actor.userData.idle) : actor.userData.idle;
-  for (const a of [actor.userData.idle, actor.userData.walk, actor.userData.run]) {
-    if (!a || a === want) continue;
-    if (a.isRunning()) a.fadeOut(0.25);
+
+/* ---------- sparks (collectibles) ---------- */
+const sparkGeo = new THREE.OctahedronGeometry(0.28, 0);
+const sparkMat = new THREE.MeshStandardMaterial({ color: 0x66b3ff, emissive: BLUE, emissiveIntensity: 2.2, roughness: 0.2, metalness: 0.3 });
+const haloTex = (() => {
+  const c = document.createElement("canvas"); c.width = c.height = 64; const g = c.getContext("2d");
+  const gr = g.createRadialGradient(32, 32, 0, 32, 32, 32); gr.addColorStop(0, "rgba(0,127,255,.9)"); gr.addColorStop(1, "rgba(0,127,255,0)");
+  g.fillStyle = gr; g.fillRect(0, 0, 64, 64); return new THREE.CanvasTexture(c);
+})();
+const haloMat = new THREE.SpriteMaterial({ map: haloTex, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true });
+const SPOTS = [
+  [6, 1, 3], [-4, 1, -7], [9.4, 4.9, -16.5], [6.2, 3.9, -15.2], [21.5, 4.2, 9], [15, 2.6, 4], [-23.5, 3.0, 9.5], [-20, 2.0, 6],
+  [-2, 2.8, 21], [8, 1.6, 22], [-17, 3.3, -23], [25, 2.0, -10], [-12, 2.1, 3], [0, 1, 12], [-30, 1, -5], [30, 1, 18],
+  [14, 1, -26], [-8, 1, 30], [0, 1.9, -12], [-14, 2.2, -20],
+];
+const PER_ROUND = 10;
+let sparks = [], bursts = [], round = { got: 0, t0: 0, running: false, done: false };
+let best = parseFloat(localStorage.getItem("hangout_best")) || 0;
+function showBest() { $("best").textContent = best ? best.toFixed(1) + "s" : "--"; }
+showBest();
+function newRound() {
+  for (const s of sparks) scene.remove(s.m);
+  const pool = SPOTS.slice().sort(() => Math.random() - 0.5).slice(0, PER_ROUND);
+  sparks = pool.map(([x, y, z], i) => {
+    const m = new THREE.Mesh(sparkGeo, sparkMat); m.position.set(x, y, z); m.castShadow = true;
+    const h = new THREE.Sprite(haloMat); h.scale.setScalar(1.6); m.add(h); scene.add(m);
+    return { m, x, y, z, ph: i };
+  });
+  round = { got: 0, t0: 0, running: false, done: false };
+  $("got").textContent = 0; $("tot").textContent = PER_ROUND; $("time").textContent = "0.0s";
+}
+newRound();
+function collectSpark(s) {
+  scene.remove(s.m); sparks.splice(sparks.indexOf(s), 1);
+  round.got++; $("got").textContent = round.got;
+  blip(660 + round.got * 60, 0.14, "triangle", 0.09);
+  const b = new THREE.Mesh(new THREE.RingGeometry(0.2, 0.3, 32), new THREE.MeshBasicMaterial({ color: BLUE, transparent: true, side: THREE.DoubleSide, depthWrite: false }));
+  b.position.copy(s.m.position); b.lookAt(camera.position); scene.add(b); bursts.push({ m: b, t: 0 });
+  if (!sparks.length) {
+    const secs = (performance.now() - round.t0) / 1000;
+    round.running = false; round.done = true;
+    const pb = !best || secs < best;
+    if (pb) { best = secs; localStorage.setItem("hangout_best", String(best)); showBest(); }
+    toast(`All ${PER_ROUND} sparks in ${secs.toFixed(1)}s${pb ? " - new best!" : ""}`, 3500);
+    [523, 659, 784, 1046].forEach((f, i) => setTimeout(() => blip(f, 0.18, "triangle", 0.08), i * 110));
+    P.body?.anim.play("Dance");
+    setTimeout(() => { newRound(); toast("New round - sparks respawned"); }, 3800);
   }
-  if (want && !want.isRunning()) want.reset().fadeIn(0.25).play();
 }
+
+/* ---------- input ---------- */
+const keys = Object.create(null);
+let yaw = 0, pitch = 0.32, dist = 5.2, jumpQueued = false;
+const joy = { x: 0, y: 0 };
+addEventListener("keydown", (e) => {
+  unlockAudio();
+  keys[e.code] = true;
+  if (e.code === "Space") { jumpQueued = true; e.preventDefault(); }
+  const em = { Digit1: "Wave", Digit2: "Dance", Digit3: "ThumbsUp", Digit4: "Yes" }[e.code];
+  if (em && !e.repeat) emote(em);
+});
+addEventListener("keyup", (e) => { keys[e.code] = false; });
+addEventListener("blur", () => { for (const k in keys) keys[k] = false; });
 
 const canvas = renderer.domElement;
-canvas.style.touchAction = "none";
-addEventListener("keydown", (e) => { keys[e.code] = true; });
-addEventListener("keyup", (e) => { keys[e.code] = false; });
-canvas.addEventListener("pointerdown", (e) => { if (e.button === 0) { dragging = true; canvas.setPointerCapture(e.pointerId); } });
-canvas.addEventListener("pointerup", () => { dragging = false; });
-canvas.addEventListener("pointermove", (e) => {
-  if (!dragging) return;
-  yaw -= e.movementX * 0.0038;
-  pitch = THREE.MathUtils.clamp(pitch - e.movementY * 0.0026, 0.02, 0.95);
+const ptrs = new Map();
+const stickEl = $("stick"), knob = stickEl.querySelector("i");
+canvas.addEventListener("pointerdown", (e) => {
+  unlockAudio();
+  const isStick = e.pointerType === "touch" && e.clientX < innerWidth * 0.45 && ![...ptrs.values()].some((p) => p.stick);
+  ptrs.set(e.pointerId, { stick: isStick, x0: e.clientX, y0: e.clientY, lx: e.clientX, ly: e.clientY });
+  if (isStick) { stickEl.style.left = e.clientX + "px"; stickEl.style.top = e.clientY + "px"; stickEl.classList.add("on"); }
+  canvas.setPointerCapture(e.pointerId);
 });
-canvas.addEventListener("wheel", (e) => { e.preventDefault(); dist = THREE.MathUtils.clamp(dist + e.deltaY * 0.007, 2.0, 7.5); }, { passive: false });
+canvas.addEventListener("pointermove", (e) => {
+  const p = ptrs.get(e.pointerId); if (!p) return;
+  if (p.stick) {
+    let dx = e.clientX - p.x0, dy = e.clientY - p.y0; const l = Math.hypot(dx, dy), R = 50;
+    if (l > R) { dx *= R / l; dy *= R / l; }
+    joy.x = dx / R; joy.y = -dy / R; knob.style.transform = `translate(${dx}px,${dy}px)`;
+  } else {
+    const k = e.pointerType === "touch" ? 0.006 : 0.004;
+    yaw -= (e.clientX - p.lx) * k;
+    pitch = clamp(pitch + (e.clientY - p.ly) * k * 0.7, -0.15, 1.1);
+  }
+  p.lx = e.clientX; p.ly = e.clientY;
+});
+function endPtr(e) {
+  const p = ptrs.get(e.pointerId); if (!p) return;
+  ptrs.delete(e.pointerId);
+  if (p.stick) { joy.x = joy.y = 0; knob.style.transform = ""; stickEl.classList.remove("on"); }
+}
+canvas.addEventListener("pointerup", endPtr); canvas.addEventListener("pointercancel", endPtr);
+canvas.addEventListener("wheel", (e) => { e.preventDefault(); dist = clamp(dist + e.deltaY * 0.006, 2.4, 10); }, { passive: false });
+canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+$("jump").addEventListener("pointerdown", (e) => { e.preventDefault(); unlockAudio(); jumpQueued = true; });
+$("emotes").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) { unlockAudio(); emote(b.dataset.emote); } });
 addEventListener("resize", () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
-document.getElementById("cast").onclick = (e) => { const id = e.target.dataset.id; if (id) wear(id).catch((err) => toast(String(err.message || err))); };
-document.getElementById("who").onclick = () => {
-  const n = prompt("Name", document.getElementById("who").textContent);
-  if (n) document.getElementById("who").textContent = n.slice(0, 16);
+$("who").onclick = () => {
+  const n = prompt("Your name", myName);
+  if (n && n.trim()) { myName = n.trim().slice(0, 16); localStorage.setItem("hangout_name", myName); $("who").textContent = myName; P.tag.querySelector("span").textContent = myName; }
 };
+function emote(n) {
+  if (!P.body) return;
+  P.body.anim.play(n);
+  for (const c of NPCS) {
+    if (!c.body || Math.hypot(c.x - P.x, c.z - P.z) > 6) continue;
+    c.mood = 2.5; say(c, n === "Dance" ? "dance party!" : "o/", 2.2);
+    setTimeout(() => c.body.anim.play(n === "Dance" ? "Dance" : "Wave"), 300 + Math.random() * 300);
+  }
+}
 
+/* ---------- avatar switching ---------- */
+let wearing = "robot", loadingId = null;
+async function wear(id) {
+  const spec = CAST[id]; if (!spec || id === loadingId) return;
+  loadingId = id;
+  for (const b of document.querySelectorAll("#cast button")) b.classList.toggle("on", b.dataset.id === id);
+  try {
+    let body;
+    if (id === "robot") { await robotReady; body = makeRobot(BLUE); }
+    else {
+      $("load").textContent = `loading ${spec.name}...`;
+      body = await makeVrm(spec, (f) => { if (loadingId === id) $("load").textContent = `loading ${spec.name} ${Math.round(f * 100)}%`; });
+    }
+    if (loadingId !== id) return; // user picked something else meanwhile
+    setBody(P, body); wearing = id; $("load").textContent = "";
+    toast(`You are ${spec.name}`);
+    if (body.vrm) Promise.all([mixamoClip(MOTION.idle, body.vrm), mixamoClip(MOTION.walk, body.vrm), mixamoClip(MOTION.run, body.vrm)])
+      .then(([idle, walk, run]) => { if (idle && walk && P.body === body) body.anim.attachClips({ idle, walk, run }); })
+      .catch((e) => console.warn("mixamo clips unavailable, using procedural gait", e));
+  } catch (err) {
+    console.warn("avatar load failed", err);
+    if (loadingId === id) {
+      $("load").textContent = ""; toast(`Couldn't load ${spec.name}`);
+      for (const b of document.querySelectorAll("#cast button")) b.classList.toggle("on", b.dataset.id === wearing);
+    }
+  } finally { if (loadingId === id) loadingId = null; }
+}
+$("cast").onclick = (e) => { const id = e.target.closest("button")?.dataset.id; if (id) wear(id); };
+
+robotReady.then(() => {
+  for (const c of NPCS) {
+    setBody(c, makeRobot(c.tint)); c.tag = makeTag(c.name); c.sayT = 0;
+    c.tx = c.x; c.tz = c.z; c.wait = 1 + Math.random() * 3; c.facing = 0; c.mood = 0; c.greeted = false; c.stuck = 0;
+  }
+}).catch((e) => { console.warn(e); toast("Couldn't load characters - check your connection", 6000); });
+wear("robot");
+
+/* ---------- loop ---------- */
 const clock = new THREE.Clock();
+const cam = new THREE.Vector3(0, 3, 6), look = new THREE.Vector3(0, 1.4, 0), tmp = new THREE.Vector3();
+function updateNpc(c, dt) {
+  if (!c.body) return;
+  const dP = Math.hypot(P.x - c.x, P.z - c.z);
+  let speed = 0;
+  if (dP < 3 && !c.greeted) { c.greeted = true; c.mood = 2; c.body.anim.play("Wave"); say(c, c.lines[(Math.random() * c.lines.length) | 0]); }
+  if (dP > 7) c.greeted = false;
+  if (c.mood > 0) { c.mood -= dt; c.facing = Math.atan2(P.x - c.x, P.z - c.z); }
+  else if (c.wait > 0) { c.wait -= dt; }
+  else {
+    const dx = c.tx - c.x, dz = c.tz - c.z, d = Math.hypot(dx, dz);
+    if (d < 0.4 || c.stuck > 3) {
+      c.wait = 2 + Math.random() * 4; c.stuck = 0;
+      const a = Math.random() * Math.PI * 2, r = 4 + Math.random() * 14;
+      c.tx = clamp(c.x + Math.cos(a) * r, -30, 30); c.tz = clamp(c.z + Math.sin(a) * r, -30, 30);
+    } else {
+      speed = 1.5; const px = c.x, pz = c.z;
+      c.x += (dx / d) * speed * dt; c.z += (dz / d) * speed * dt;
+      collide(c, 0);
+      if (Math.hypot(c.x - px, c.z - pz) < speed * dt * 0.3) c.stuck += dt;
+      c.facing = Math.atan2(dx, dz);
+    }
+  }
+  c.shown = (c.shown ?? c.facing) + shortest(c.shown ?? c.facing, c.facing) * Math.min(1, dt * 6);
+  c.body.obj.position.set(c.x, 0, c.z); c.body.obj.rotation.y = c.shown;
+  if (c.body.anim.emote && speed > 0) c.body.anim.stop();
+  c.body.anim.setBase(speed > 0 ? "Walking" : "Idle", 1);
+  c.body.anim.update(dt);
+}
+function placeTag(ent, h, dt) {
+  if (!ent.tag || !ent.body) return;
+  tmp.set(ent.x, (ent.y || 0) + h + 0.05, ent.z).project(camera);
+  const vis = tmp.z < 1 && Math.abs(tmp.x) < 1.1 && Math.abs(tmp.y) < 1.1 && camera.position.distanceTo(ent.body.obj.position) < 30;
+  ent.tag.style.display = vis ? "" : "none";
+  if (vis) { ent.tag.style.left = ((tmp.x + 1) / 2) * innerWidth + "px"; ent.tag.style.top = ((1 - tmp.y) / 2) * innerHeight + "px"; }
+  if (ent.sayT > 0 && (ent.sayT -= dt) <= 0) ent.tag.querySelector("i").hidden = true;
+}
+
 function tick() {
   requestAnimationFrame(tick);
-  const dt = Math.min(clock.getDelta(), 0.05);
-  let ix = 0, iz = 0;
+  const dt = Math.min(clock.getDelta(), 0.05), t = clock.elapsedTime;
+
+  // input -> camera-relative wish direction
+  let ix = joy.x, iz = joy.y;
   if (keys.KeyW || keys.ArrowUp) iz += 1;
   if (keys.KeyS || keys.ArrowDown) iz -= 1;
   if (keys.KeyA || keys.ArrowLeft) ix -= 1;
   if (keys.KeyD || keys.ArrowRight) ix += 1;
-  const wantMove = !!(ix || iz);
-  const run = !!(keys.ShiftLeft || keys.ShiftRight);
-  if (wantMove) { const l = Math.hypot(ix, iz); ix /= l; iz /= l; }
-  const max = run ? 5.2 : 2.5;
-  const fX = -Math.sin(yaw), fZ = -Math.cos(yaw);
-  const rX = Math.cos(yaw), rZ = -Math.sin(yaw);
-  const tx = wantMove ? (fX * iz + rX * ix) * max : 0;
-  const tz = wantMove ? (fZ * iz + rZ * ix) * max : 0;
-  vx += (tx - vx) * Math.min(1, dt * (wantMove ? 7 : 5));
-  vz += (tz - vz) * Math.min(1, dt * (wantMove ? 7 : 5));
-  x = THREE.MathUtils.clamp(x + vx * dt, ROOM.minX, ROOM.maxX);
-  z = THREE.MathUtils.clamp(z + vz * dt, ROOM.minZ, ROOM.maxZ);
-  const spd = Math.hypot(vx, vz);
-  const moving = spd > 0.22;
-  if (moving) facing = Math.atan2(vx, vz);
-  shown += shortest(shown, facing) * Math.min(1, dt * (moving ? 7 : 3.5));
-  if (actor) {
-    actor.position.set(x, 0, z);
-    actor.rotation.y = shown + faceOff;
+  if (keys.KeyQ) yaw += dt * 2.2;
+  if (keys.KeyE) yaw -= dt * 2.2;
+  let mag = Math.min(1, Math.hypot(ix, iz));
+  if (mag < 0.12) mag = 0;
+  const run = !!(keys.ShiftLeft || keys.ShiftRight) || Math.hypot(joy.x, joy.y) > 0.92;
+  const max = (run ? 6.2 : 3.0) * mag;
+  let tx = 0, tz = 0;
+  if (mag) {
+    const l = Math.hypot(ix, iz), fx = -Math.sin(yaw), fz = -Math.cos(yaw), rx = Math.cos(yaw), rz = -Math.sin(yaw);
+    tx = ((fx * iz + rx * ix) / l) * max; tz = ((fz * iz + rz * ix) / l) * max;
+    if (!round.running && !round.done) { round.running = true; round.t0 = performance.now(); }
   }
-  loco(moving, run);
-  if (mixer) mixer.update(dt);
-  gait(moving, run, spd * dt);
-  if (vrm) vrm.update(dt);
+  const accel = P.grounded ? (mag ? 10 : 8) : 2.5;
+  P.vx += (tx - P.vx) * Math.min(1, dt * accel);
+  P.vz += (tz - P.vz) * Math.min(1, dt * accel);
+  P.x += P.vx * dt; P.z += P.vz * dt;
+  const floor = collide(P, P.y);
 
-  const lookY = 1.42;
-  const shoulder = 0.38;
-  const sx = Math.cos(yaw) * shoulder, sz = -Math.sin(yaw) * shoulder;
+  // jump / gravity
+  P.coyote = P.grounded ? 0.12 : P.coyote - dt;
+  if (jumpQueued && P.coyote > 0) {
+    P.vy = 8.2; P.grounded = false; P.coyote = 0; blip(330, 0.1, "sine", 0.05);
+    if (P.body?.anim.a?.Jump) P.body.anim.play("Jump");
+  }
+  jumpQueued = false;
+  P.vy -= 24 * dt; P.y += P.vy * dt;
+  if (P.y <= floor) { if (!P.grounded && P.vy < -6) blip(140, 0.08, "sine", 0.04); P.y = floor; P.vy = 0; P.grounded = true; }
+  else if (P.y > floor + 0.05) P.grounded = false;
+
+  const spd = Math.hypot(P.vx, P.vz), moving = spd > 0.3;
+  if (moving) P.facing = Math.atan2(P.vx, P.vz);
+  P.shown += shortest(P.shown, P.facing) * Math.min(1, dt * (moving ? 10 : 4));
+  if (P.body) {
+    P.body.obj.position.set(P.x, P.y, P.z); P.body.obj.rotation.y = P.shown;
+    const a = P.body.anim;
+    if (a instanceof RobotAnim) {
+      if (moving && a.emote && a.emote !== a.a.Jump) a.stop();
+      if (P.grounded && a.emote === a.a.Jump && a.emote.time > 0.5) a.stop();
+      if (spd > 4.2) a.setBase("Running", clamp(spd / 6.2, 0.7, 1.2));
+      else if (moving) a.setBase("Walking", clamp(spd / 2.4, 0.6, 1.5));
+      else a.setBase("Idle", 1);
+      a.update(dt);
+    } else {
+      if (moving && a.emote) a.stop();
+      a.drive(spd, spd > 4.2, !P.grounded, dt);
+    }
+  }
+  for (const c of NPCS) updateNpc(c, dt);
+
+  // sparks
+  const cy = P.y + 0.9;
+  for (let i = sparks.length - 1; i >= 0; i--) {
+    const s = sparks[i];
+    s.m.rotation.y += dt * 2; s.m.position.y = s.y + Math.sin(t * 2.5 + s.ph) * 0.12;
+    if (Math.hypot(s.x - P.x, s.z - P.z) < 0.85 && Math.abs(s.m.position.y - cy) < 1.15) collectSpark(s);
+  }
+  for (let i = bursts.length - 1; i >= 0; i--) {
+    const b = bursts[i]; b.t += dt; b.m.scale.setScalar(1 + b.t * 14); b.m.material.opacity = Math.max(0, 1 - b.t * 2.5);
+    if (b.t > 0.4) { scene.remove(b.m); b.m.geometry.dispose(); b.m.material.dispose(); bursts.splice(i, 1); }
+  }
+  if (round.running) $("time").textContent = ((performance.now() - round.t0) / 1000).toFixed(1) + "s";
+  pad.material.opacity = 0.45 + Math.sin(t * 2) * 0.25;
+
+  // camera: smooth orbit around the player, kept above the floor
+  look.lerp(tmp.set(P.x, P.y + 1.35, P.z), Math.min(1, dt * 10));
   const cp = Math.cos(pitch), sp = Math.sin(pitch);
-  const wantX = x + sx + Math.sin(yaw) * cp * dist;
-  const wantY = lookY + sp * dist * 0.9;
-  const wantZ = z + sz + Math.cos(yaw) * cp * dist;
-  cam.x += (wantX - cam.x) * Math.min(1, dt * 9);
-  cam.y += (wantY - cam.y) * Math.min(1, dt * 9);
-  cam.z += (wantZ - cam.z) * Math.min(1, dt * 9);
-  camera.position.set(cam.x, cam.y, cam.z);
-  camera.lookAt(x + sx * 0.35, lookY, z + sz * 0.35);
+  tmp.set(look.x + Math.sin(yaw) * cp * dist, look.y + sp * dist, look.z + Math.cos(yaw) * cp * dist);
+  tmp.y = Math.max(tmp.y, 0.4);
+  cam.lerp(tmp, Math.min(1, dt * 12));
+  camera.position.copy(cam); camera.lookAt(look);
+
+  sun.position.set(P.x + 8, 16, P.z + 6); sun.target.position.set(P.x, 0, P.z);
+
+  placeTag(P, P.body?.height || 1.7, dt);
+  for (const c of NPCS) placeTag(c, 1.75, dt);
   renderer.render(scene, camera);
 }
 tick();
-wear("aya").catch(() => wear("robot"));
+// debug hook for automated checks
+window.__hangout = { P, NPCS, get sparks() { return sparks.length; }, get list() { return sparks; }, get round() { return round; }, wear };
 </script>
 </body>
 </html>
